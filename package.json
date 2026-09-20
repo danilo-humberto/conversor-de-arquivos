@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "tsx watch src/api/server.ts",
     "typecheck": "tsc --noEmit",
-    "db:check": "tsx src/scripts/check-database.ts"
+    "db:check": "tsx src/scripts/check-database.ts",
+    "db:migrate": "tsx src/db/migrate.ts"
   },
   "keywords": [],
   "author": "",

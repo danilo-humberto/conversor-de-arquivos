@@ -27,4 +27,11 @@ export const env = {
     password: readRequiredEnv("POSTGRES_PASSWORD"),
     database: readRequiredEnv("POSTGRES_DB"),
   },
+  rabbitmq: {
+    host: readRequiredEnv("RABBITMQ_HOST"),
+    port: readPort("RABBITMQ_PORT", 5672),
+    user: readRequiredEnv("RABBITMQ_DEFAULT_USER"),
+    password: readRequiredEnv("RABBITMQ_DEFAULT_PASS"),
+    vhost: readRequiredEnv("RABBITMQ_VHOST"),
+  },
 };

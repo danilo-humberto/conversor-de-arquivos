@@ -18,6 +18,24 @@ function readPort(name: string, defaultValue: number): number {
   return port;
 }
 
+function readBoolean(name: string, defaultValue: boolean): boolean {
+  const value = process.env[name];
+
+  if (!value) {
+    return defaultValue;
+  }
+
+  if (value.toLowerCase() === "true") {
+    return true;
+  }
+
+  if (value.toLowerCase() === "false") {
+    return false;
+  }
+
+  throw new Error(`Invalid boolean value for environment variable: ${name}`);
+}
+
 export const env = {
   port: readPort("PORT", 3000),
   postgres: {
@@ -33,5 +51,12 @@ export const env = {
     user: readRequiredEnv("RABBITMQ_DEFAULT_USER"),
     password: readRequiredEnv("RABBITMQ_DEFAULT_PASS"),
     vhost: readRequiredEnv("RABBITMQ_VHOST"),
+  },
+  minio: {
+    endpoint: readRequiredEnv("MINIO_ENDPOINT"),
+    port: readPort("MINIO_PORT", 9000),
+    useSSL: readBoolean("MINIO_USE_SSL", false),
+    rootUser: readRequiredEnv("MINIO_ROOT_USER"),
+    rootPassword: readRequiredEnv("MINIO_ROOT_PASSWORD"),
   },
 };

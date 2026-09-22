@@ -10,7 +10,8 @@
     "db:check": "tsx src/scripts/check-database.ts",
     "db:migrate": "tsx src/db/migrate.ts",
     "broker:check": "tsx src/scripts/check-rabbitmq.ts",
-    "storage:check": "tsx src/scripts/check-storage.ts"
+    "storage:check": "tsx src/scripts/check-storage.ts",
+    "outbox:dispatch": "tsx src/scripts/dispatch.ts"
   },
   "keywords": [],
   "author": "",

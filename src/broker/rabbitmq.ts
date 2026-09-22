@@ -19,3 +19,18 @@ export async function createRabbitMqChannel() {
 
   return { connection, channel };
 }
+
+export async function createRabbitMqConfirmChannel() {
+  const connection = await amqp.connect(createRabbitMqUrl());
+
+  const channel = await connection.createConfirmChannel();
+
+  await channel.assertQueue(conversionQueue, {
+    durable: true,
+  });
+
+  return {
+    connection,
+    channel,
+  };
+}

@@ -36,6 +36,17 @@ function readBoolean(name: string, defaultValue: boolean): boolean {
   throw new Error(`Invalid boolean value for environment variable: ${name}`);
 }
 
+function readPositiveInteger(name: string, defaultValue: number): number {
+  const value = process.env[name] ?? String(defaultValue);
+  const numberValue = Number(value);
+
+  if (!Number.isInteger(numberValue) || numberValue <= 0) {
+    throw new Error(`${name} deve ser um número inteiro positivo.`);
+  }
+
+  return numberValue;
+}
+
 export const env = {
   port: readPort("PORT", 3000),
   postgres: {
@@ -59,4 +70,5 @@ export const env = {
     rootUser: readRequiredEnv("MINIO_ROOT_USER"),
     rootPassword: readRequiredEnv("MINIO_ROOT_PASSWORD"),
   },
+  maxUploadSizeBytes: readPositiveInteger("MAX_UPLOAD_SIZE_BYTES", 104857600), // 100 MB
 };

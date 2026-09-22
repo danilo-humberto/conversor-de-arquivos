@@ -11,7 +11,8 @@
     "db:migrate": "tsx src/db/migrate.ts",
     "broker:check": "tsx src/scripts/check-rabbitmq.ts",
     "storage:check": "tsx src/scripts/check-storage.ts",
-    "outbox:dispatch": "tsx src/scripts/dispatch.ts"
+    "outbox:dispatch": "tsx src/scripts/dispatch.ts",
+    "worker:conversion": "tsx src/workers/conversion-worker.ts"
   },
   "keywords": [],
   "author": "",

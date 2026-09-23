@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import {
   createRabbitMqConfirmChannel,
   conversionQueue,
+  notificationQueue,
 } from "../broker/rabbitmq.js";
 import { database } from "../db/connection.js";
 
@@ -88,6 +89,19 @@ async function claimNextOutboxEvent(): Promise<ClaimedOutboxEvent | null> {
   }
 }
 
+function getDestinationQueue(eventType: string): string {
+  switch (eventType) {
+    case "conversion.requested":
+      return conversionQueue;
+
+    case "conversion.completed":
+      return notificationQueue;
+
+    default:
+      throw new Error(`Unsupported outbox event type: ${eventType}`);
+  }
+}
+
 async function markOutboxEventAsPublished(
   eventId: string,
   processingToken: string,
@@ -123,7 +137,7 @@ export async function dispatchNextOutboxEvent(): Promise<boolean> {
 
   try {
     channel.sendToQueue(
-      conversionQueue,
+      getDestinationQueue(event.eventType),
       Buffer.from(JSON.stringify(event.payload)),
       {
         contentType: "application/json",

@@ -12,7 +12,9 @@
     "broker:check": "tsx src/scripts/check-rabbitmq.ts",
     "storage:check": "tsx src/scripts/check-storage.ts",
     "outbox:dispatch": "tsx src/scripts/dispatch.ts",
-    "worker:conversion": "tsx src/workers/conversion-worker.ts"
+    "worker:conversion": "tsx src/workers/conversion-worker.ts",
+    "smtp:check": "tsx src/scripts/check-smtp.ts",
+    "worker:notification": "tsx src/workers/notification-worker.ts"
   },
   "keywords": [],
   "author": "",
@@ -32,6 +34,7 @@
     "express": "^5.2.1",
     "minio": "^8.0.7",
     "multer": "^2.4.0",
+    "nodemailer": "^10.0.10",
     "pg": "^8.23.0"
   }
 }

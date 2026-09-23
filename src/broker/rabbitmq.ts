@@ -6,6 +6,11 @@ export const conversionRetry5SecondsQueue = "conversion.retry.5s";
 export const conversionRetry30SecondsQueue = "conversion.retry.30s";
 export const conversionDeadLetterQueue = "conversion.dlq";
 
+export const notificationQueue = "notification.jobs";
+export const notificationRetry5SecondsQueue = "notification.retry.5s";
+export const notificationRetry30SecondsQueue = "notification.retry.30s";
+export const notificationDeadLetterQueue = "notification.dlq";
+
 function createRabbitMqUrl(): string {
   const user = encodeURIComponent(env.rabbitmq.user);
   const password = encodeURIComponent(env.rabbitmq.password);
@@ -40,6 +45,36 @@ async function assertConversionTopology(
   });
 
   await channel.assertQueue(conversionDeadLetterQueue, {
+    durable: true,
+  });
+
+  await channel.assertQueue(notificationQueue, {
+    durable: true,
+  });
+
+  await channel.assertQueue(notificationQueue, {
+    durable: true,
+  });
+
+  await channel.assertQueue(notificationRetry5SecondsQueue, {
+    durable: true,
+    arguments: {
+      "x-message-ttl": 5_000,
+      "x-dead-letter-exchange": "",
+      "x-dead-letter-routing-key": notificationQueue,
+    },
+  });
+
+  await channel.assertQueue(notificationRetry30SecondsQueue, {
+    durable: true,
+    arguments: {
+      "x-message-ttl": 30_000,
+      "x-dead-letter-exchange": "",
+      "x-dead-letter-routing-key": notificationQueue,
+    },
+  });
+
+  await channel.assertQueue(notificationDeadLetterQueue, {
     durable: true,
   });
 }

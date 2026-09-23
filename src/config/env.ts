@@ -71,4 +71,9 @@ export const env = {
     rootPassword: readRequiredEnv("MINIO_ROOT_PASSWORD"),
   },
   maxUploadSizeBytes: readPositiveInteger("MAX_UPLOAD_SIZE_BYTES", 104857600), // 100 MB
+  smtp: {
+    host: readRequiredEnv("SMTP_HOST"),
+    port: readPort("SMTP_PORT", 1025),
+    from: readRequiredEnv("MAIL_FROM"),
+  },
 };

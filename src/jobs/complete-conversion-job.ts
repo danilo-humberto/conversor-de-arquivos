@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { serializeConversionFinishedEvent } from "../contracts/conversion-events.js";
 import { database } from "../db/connection.js";
 
 type CompleteConversionJobInput = {
@@ -7,6 +8,8 @@ type CompleteConversionJobInput = {
   processingToken: string;
   resultBucket: string;
   resultObjectKey: string;
+  notifyEmail: string;
+  resultUrl: string;
 };
 
 export class JobCompletionError extends Error {
@@ -74,11 +77,15 @@ export async function completeConversionJob(
       [
         eventId,
         input.jobId,
-        "conversion.completed",
-        JSON.stringify({
+        "conversion.finished",
+        serializeConversionFinishedEvent({
           eventId,
-          type: "conversion.completed",
+          type: "conversion.finished",
           jobId: input.jobId,
+          notifyEmail: input.notifyEmail,
+          status: "CONCLUÍDO",
+          resultUrl: input.resultUrl,
+          error: null,
           occurredAt,
         }),
       ],

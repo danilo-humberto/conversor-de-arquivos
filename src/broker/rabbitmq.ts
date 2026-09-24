@@ -1,15 +1,26 @@
 import { connect, type Channel, type ConfirmChannel } from "amqplib";
 import { env } from "../config/env.js";
+import {
+  conversionDeadLetterQueue,
+  conversionQueue,
+  conversionRetry30SecondsQueue,
+  conversionRetry5SecondsQueue,
+  notificationDeadLetterQueue,
+  notificationQueue,
+  notificationRetry30SecondsQueue,
+  notificationRetry5SecondsQueue,
+} from "./queues.js";
 
-export const conversionQueue = "conversion.jobs";
-export const conversionRetry5SecondsQueue = "conversion.retry.5s";
-export const conversionRetry30SecondsQueue = "conversion.retry.30s";
-export const conversionDeadLetterQueue = "conversion.dlq";
-
-export const notificationQueue = "notification.jobs";
-export const notificationRetry5SecondsQueue = "notification.retry.5s";
-export const notificationRetry30SecondsQueue = "notification.retry.30s";
-export const notificationDeadLetterQueue = "notification.dlq";
+export {
+  conversionDeadLetterQueue,
+  conversionQueue,
+  conversionRetry30SecondsQueue,
+  conversionRetry5SecondsQueue,
+  notificationDeadLetterQueue,
+  notificationQueue,
+  notificationRetry30SecondsQueue,
+  notificationRetry5SecondsQueue,
+};
 
 function createRabbitMqUrl(): string {
   const user = encodeURIComponent(env.rabbitmq.user);

@@ -8,6 +8,12 @@ import {
   createRabbitMqConfirmChannel,
 } from "../broker/rabbitmq.js";
 import {
+  createConversionRequestedRetryEvent,
+  parseConversionRequestedEventJson,
+  serializeConversionRequestedEvent,
+  type ConversionRequestedEvent,
+} from "../contracts/conversion-events.js";
+import {
   claimConversionJob,
   getConversionJobState,
   type ClaimedConversionJob,
@@ -21,35 +27,12 @@ import { processClaimedConversionJob } from "./process-claimed-conversion-job.js
 
 const MAX_CONVERSION_ATTEMPTS = 3;
 
-type ConversionRequestedMessage = {
-  jobId: string;
-};
-
 function getErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
+  if (error instanceof Error && error.message.trim() !== "") {
     return error.message;
   }
 
   return "Unknown conversion error.";
-}
-
-function parseConversionRequestedMessage(
-  message: ConsumeMessage,
-): ConversionRequestedMessage {
-  const payload: unknown = JSON.parse(message.content.toString("utf8"));
-
-  if (
-    typeof payload !== "object" ||
-    payload === null ||
-    !("jobId" in payload) ||
-    typeof payload.jobId !== "string"
-  ) {
-    throw new Error("Invalid conversion message.");
-  }
-
-  return {
-    jobId: payload.jobId,
-  };
 }
 
 async function publishWithConfirmation(
@@ -85,20 +68,39 @@ async function moveMessageToDeadLetterQueue(
   channel.ack(message);
 }
 
-async function retryMessage(
+async function retryConversionMessage(
   channel: ConfirmChannel,
   message: ConsumeMessage,
+  event: ConversionRequestedEvent,
   queueName: string,
   reason: string,
+  attempt: number,
 ): Promise<void> {
-  await publishWithConfirmation(channel, queueName, message.content, reason);
+  const retryEvent = createConversionRequestedRetryEvent(event, attempt);
 
+  channel.sendToQueue(
+    queueName,
+    Buffer.from(serializeConversionRequestedEvent(retryEvent)),
+    {
+      contentType: "application/json",
+      headers: {
+        "x-error-reason": reason,
+        "x-original-queue": conversionQueue,
+      },
+      messageId: event.eventId,
+      persistent: true,
+      type: event.type,
+    },
+  );
+
+  await channel.waitForConfirms();
   channel.ack(message);
 }
 
 async function handleProcessingFailure(
   channel: ConfirmChannel,
   message: ConsumeMessage,
+  event: ConversionRequestedEvent,
   job: ClaimedConversionJob,
   errorMessage: string,
 ): Promise<void> {
@@ -116,12 +118,22 @@ async function handleProcessingFailure(
         ? conversionRetry5SecondsQueue
         : conversionRetry30SecondsQueue;
 
-    await retryMessage(channel, message, retryQueue, errorMessage);
+    await retryConversionMessage(
+      channel,
+      message,
+      event,
+      retryQueue,
+      errorMessage,
+      job.attemptCount + 1,
+    );
 
     return;
   }
 
-  await markConversionJobAsFailed(failureInput);
+  await markConversionJobAsFailed({
+    ...failureInput,
+    notifyEmail: event.notifyEmail,
+  });
 
   await moveMessageToDeadLetterQueue(channel, message, errorMessage);
 }
@@ -129,9 +141,9 @@ async function handleProcessingFailure(
 async function handleUnclaimedJob(
   channel: ConfirmChannel,
   message: ConsumeMessage,
-  jobId: string,
+  event: ConversionRequestedEvent,
 ): Promise<void> {
-  const jobState = await getConversionJobState(jobId);
+  const jobState = await getConversionJobState(event.jobId);
 
   if (
     jobState === null ||
@@ -148,11 +160,13 @@ async function handleUnclaimedJob(
       ? conversionRetry30SecondsQueue
       : conversionRetry5SecondsQueue;
 
-  await retryMessage(
+  await retryConversionMessage(
     channel,
     message,
+    event,
     retryQueue,
     "Job is not currently available for processing.",
+    event.attempt,
   );
 }
 
@@ -160,10 +174,10 @@ async function handleMessage(
   channel: ConfirmChannel,
   message: ConsumeMessage,
 ): Promise<void> {
-  let event: ConversionRequestedMessage;
+  let event: ConversionRequestedEvent;
 
   try {
-    event = parseConversionRequestedMessage(message);
+    event = parseConversionRequestedEventJson(message.content.toString("utf8"));
   } catch (error) {
     await moveMessageToDeadLetterQueue(
       channel,
@@ -179,28 +193,31 @@ async function handleMessage(
   try {
     job = await claimConversionJob(event.jobId);
   } catch (error) {
-    await retryMessage(
+    await retryConversionMessage(
       channel,
       message,
+      event,
       conversionRetry5SecondsQueue,
       getErrorMessage(error),
+      event.attempt,
     );
 
     return;
   }
 
   if (job === null) {
-    await handleUnclaimedJob(channel, message, event.jobId);
+    await handleUnclaimedJob(channel, message, event);
 
     return;
   }
 
   try {
-    await processClaimedConversionJob(job);
+    await processClaimedConversionJob(job, event);
   } catch (error) {
     await handleProcessingFailure(
       channel,
       message,
+      event,
       job,
       getErrorMessage(error),
     );

@@ -1,10 +1,13 @@
 import { spawn } from "node:child_process";
 
+import { type ConversionSourceType } from "../contracts/conversion-events.js";
+
 export type SupportedTargetFormat = "mp4" | "webm" | "mp3" | "wav";
 
 type ConvertMediaInput = {
   inputPath: string;
   outputPath: string;
+  sourceType: ConversionSourceType;
   targetFormat: string;
 };
 
@@ -26,6 +29,14 @@ const conversionArgumentsByTargetFormat: Record<
   wav: ["-vn", "-c:a", "pcm_s16le"],
 };
 
+const targetFormatsBySourceType: Record<
+  ConversionSourceType,
+  readonly SupportedTargetFormat[]
+> = {
+  audio: ["mp3", "wav"],
+  video: ["mp4", "webm"],
+};
+
 function isSupportedTargetFormat(
   targetFormat: string,
 ): targetFormat is SupportedTargetFormat {
@@ -36,6 +47,12 @@ export async function convertMedia(input: ConvertMediaInput): Promise<void> {
   if (!isSupportedTargetFormat(input.targetFormat)) {
     throw new MediaConversionError(
       `Unsupported target format: ${input.targetFormat}`,
+    );
+  }
+
+  if (!targetFormatsBySourceType[input.sourceType].includes(input.targetFormat)) {
+    throw new MediaConversionError(
+      `Unsupported target format for ${input.sourceType}: ${input.targetFormat}`,
     );
   }
 

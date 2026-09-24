@@ -8,23 +8,23 @@ import {
   notificationRetry30SecondsQueue,
 } from "../broker/rabbitmq.js";
 import {
+  parseConversionFinishedEventJson,
+  type ConversionFinishedEvent,
+} from "../contracts/conversion-events.js";
+import {
   claimNotification,
   getNotificationState,
   type ClaimedNotification,
 } from "../notifications/claim-notification.js";
 import { createConversionCompletedEmail } from "../notifications/conversion-completed-email.js";
+import { createConversionFailedEmail } from "../notifications/conversion-failed-email.js";
 import {
   releaseNotificationForRetry,
   markNotificationAsSent,
 } from "../notifications/update-notification.js";
 import { sendEmail } from "../notifications/smtp.js";
-import { createDownloadUrl } from "../storage/download-url.js";
 
 const MAX_NOTIFICATION_ATTEMPTS = 3;
-
-type ConversionCompletedMessage = {
-  jobId: string;
-};
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) {
@@ -32,25 +32,6 @@ function getErrorMessage(error: unknown): string {
   }
 
   return "Unknown notification error.";
-}
-
-function parseConversionCompletedMessage(
-  message: ConsumeMessage,
-): ConversionCompletedMessage {
-  const payload: unknown = JSON.parse(message.content.toString("utf8"));
-
-  if (
-    typeof payload !== "object" ||
-    payload === null ||
-    !("jobId" in payload) ||
-    typeof payload.jobId !== "string"
-  ) {
-    throw new Error("Invalid notification message.");
-  }
-
-  return {
-    jobId: payload.jobId,
-  };
 }
 
 async function publishWithConfirmation(
@@ -99,19 +80,21 @@ async function retryMessage(
 
 async function processClaimedNotification(
   notification: ClaimedNotification,
+  event: ConversionFinishedEvent,
 ): Promise<void> {
-  const downloadUrl = await createDownloadUrl(
-    notification.resultBucket,
-    notification.resultObjectKey,
-  );
-
-  const email = createConversionCompletedEmail({
-    jobId: notification.jobId,
-    downloadUrl,
-  });
+  const email =
+    event.status === "CONCLUÍDO"
+      ? createConversionCompletedEmail({
+          jobId: event.jobId,
+          downloadUrl: event.resultUrl,
+        })
+      : createConversionFailedEmail({
+          jobId: event.jobId,
+          error: event.error,
+        });
 
   await sendEmail({
-    to: notification.notifyEmail,
+    to: event.notifyEmail,
     ...email,
   });
 
@@ -177,10 +160,10 @@ async function handleMessage(
   channel: ConfirmChannel,
   message: ConsumeMessage,
 ): Promise<void> {
-  let event: ConversionCompletedMessage;
+  let event: ConversionFinishedEvent;
 
   try {
-    event = parseConversionCompletedMessage(message);
+    event = parseConversionFinishedEventJson(message.content.toString("utf8"));
   } catch (error) {
     await moveMessageToDeadLetterQueue(
       channel,
@@ -213,7 +196,7 @@ async function handleMessage(
   }
 
   try {
-    await processClaimedNotification(notification);
+    await processClaimedNotification(notification, event);
   } catch (error) {
     await handleNotificationFailure(
       channel,

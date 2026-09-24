@@ -47,6 +47,20 @@ function readPositiveInteger(name: string, defaultValue: number): number {
   return numberValue;
 }
 
+function readPositiveIntegerAtMost(
+  name: string,
+  defaultValue: number,
+  maximum: number,
+): number {
+  const value = readPositiveInteger(name, defaultValue);
+
+  if (value > maximum) {
+    throw new Error(`${name} must not be greater than ${maximum}.`);
+  }
+
+  return value;
+}
+
 const minioEndpoint = readRequiredEnv("MINIO_ENDPOINT");
 const minioPort = readPort("MINIO_PORT", 9000);
 const minioUseSSL = readBoolean("MINIO_USE_SSL", false);
@@ -76,6 +90,11 @@ export const env = {
     publicUseSSL: readBoolean("MINIO_PUBLIC_USE_SSL", minioUseSSL),
     rootUser: readRequiredEnv("MINIO_ROOT_USER"),
     rootPassword: readRequiredEnv("MINIO_ROOT_PASSWORD"),
+    sourceUrlExpirySeconds: readPositiveIntegerAtMost(
+      "MINIO_SOURCE_URL_EXPIRY_SECONDS",
+      7 * 24 * 60 * 60,
+      7 * 24 * 60 * 60,
+    ),
   },
   maxUploadSizeBytes: readPositiveInteger("MAX_UPLOAD_SIZE_BYTES", 104857600), // 100 MB
   outboxPollIntervalMs: readPositiveInteger("OUTBOX_POLL_INTERVAL_MS", 1000),

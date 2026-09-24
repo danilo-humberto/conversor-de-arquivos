@@ -8,18 +8,12 @@ type NotificationRow = {
   job_id: string;
   attempt_count: number;
   notification_token: string;
-  notify_email: string;
-  result_bucket: string;
-  result_object_key: string;
 };
 
 export type ClaimedNotification = {
   jobId: string;
   attemptCount: number;
   notificationToken: string;
-  notifyEmail: string;
-  resultBucket: string;
-  resultObjectKey: string;
 };
 
 export async function claimNotification(
@@ -58,7 +52,7 @@ export async function claimNotification(
         FROM jobs
         WHERE notification.job_id = jobs.id
           AND notification.job_id = $1
-          AND jobs.status = 'CONCLUÍDO'
+          AND jobs.status IN ('CONCLUÍDO', 'ERRO')
           AND (
             notification.status = 'PENDING'
             OR (
@@ -69,10 +63,7 @@ export async function claimNotification(
         RETURNING
           notification.job_id,
           notification.attempt_count,
-          notification.notification_token,
-          jobs.notify_email,
-          jobs.result_bucket,
-          jobs.result_object_key
+          notification.notification_token
       `,
       [jobId, processingToken, NOTIFICATION_LEASE_DURATION_MS],
     );
@@ -90,9 +81,6 @@ export async function claimNotification(
       jobId: notification.job_id,
       attemptCount: notification.attempt_count,
       notificationToken: notification.notification_token,
-      notifyEmail: notification.notify_email,
-      resultBucket: notification.result_bucket,
-      resultObjectKey: notification.result_object_key,
     };
   } catch (error) {
     if (transactionOpen) {

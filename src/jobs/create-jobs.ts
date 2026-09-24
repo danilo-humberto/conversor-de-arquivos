@@ -2,14 +2,19 @@ import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { extname } from "node:path";
 
+import {
+  serializeConversionRequestedEvent,
+  type ConversionSourceType,
+} from "../contracts/conversion-events.js";
 import { database } from "../db/connection.js";
+import { env } from "../config/env.js";
+import { createInitialConversionRequestedEvent } from "../outbox/conversion-requested-payload.js";
 import {
   ensureStorageBuckets,
   minioClient,
   uploadsBucket,
 } from "../storage/minio.js";
-
-type SourceType = "video" | "audio";
+import { createInternalSourceUrl } from "../storage/source-url.js";
 
 export class JobValidationError extends Error {}
 
@@ -24,7 +29,7 @@ interface CreatedJob {
   status: "PENDENTE";
 }
 
-function getSourceType(mimeType: string): SourceType {
+function getSourceType(mimeType: string): ConversionSourceType {
   if (mimeType.startsWith("video/")) {
     return "video";
   }
@@ -46,14 +51,17 @@ function getSourceFormat(originalName: string): string {
   return format;
 }
 
-function getTargetFormat(value: unknown, sourceType: SourceType): string {
+function getTargetFormat(
+  value: unknown,
+  sourceType: ConversionSourceType,
+): string {
   if (typeof value !== "string") {
     throw new JobValidationError("targetFormat is required.");
   }
 
   const targetFormat = value.trim().toLowerCase();
 
-  const allowedFormats: Record<SourceType, string[]> = {
+  const allowedFormats: Record<ConversionSourceType, string[]> = {
     video: ["mp4", "webm"],
     audio: ["mp3", "wav"],
   };
@@ -108,6 +116,13 @@ export async function createJob(input: CreateJobInput): Promise<CreatedJob> {
     try {
       await client.query("BEGIN");
 
+      const sourceUrl = await createInternalSourceUrl(
+        minioClient,
+        uploadsBucket,
+        sourceObjectKey,
+        env.minio.sourceUrlExpirySeconds,
+      );
+
       await client.query(
         `
           INSERT INTO jobs (
@@ -149,17 +164,16 @@ export async function createJob(input: CreateJobInput): Promise<CreatedJob> {
         [
           eventId,
           jobId,
-          JSON.stringify({
+          serializeConversionRequestedEvent(createInitialConversionRequestedEvent({
             eventId,
-            type: "conversion.requested",
             jobId,
-            sourceBucket: uploadsBucket,
-            sourceObjectKey,
+            sourceUrl,
             sourceType,
             sourceFormat,
             targetFormat,
+            notifyEmail,
             requestedAt,
-          }),
+          })),
         ],
       );
 

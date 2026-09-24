@@ -8,12 +8,16 @@ type JobRow = {
   id: string;
   attempt_count: number;
   processing_token: string;
+  source_bucket: string;
+  source_object_key: string;
 };
 
 export type ClaimedConversionJob = {
   id: string;
   attemptCount: number;
   processingToken: string;
+  sourceBucket: string;
+  sourceObjectKey: string;
 };
 
 export async function claimConversionJob(
@@ -41,7 +45,9 @@ export async function claimConversionJob(
         RETURNING
           id,
           attempt_count,
-        processing_token
+          processing_token,
+          source_bucket,
+          source_object_key
     `,
     [jobId, processingToken, JOB_LEASE_DURATION_MS],
   );
@@ -56,6 +62,8 @@ export async function claimConversionJob(
     id: job.id,
     attemptCount: job.attempt_count,
     processingToken: job.processing_token,
+    sourceBucket: job.source_bucket,
+    sourceObjectKey: job.source_object_key,
   };
 }
 

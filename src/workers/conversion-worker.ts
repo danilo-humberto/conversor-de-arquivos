@@ -22,10 +22,35 @@ import {
   markConversionJobAsFailed,
   releaseConversionJobForRetry,
 } from "../jobs/fail-conversion-job.js";
-import { ensureStorageBuckets } from "../storage/minio.js";
+import { convertMedia } from "../conversion/ffmpeg.js";
+import { completeConversionJob } from "../jobs/complete-conversion-job.js";
+import { createDownloadUrl } from "../storage/download-url.js";
+import {
+  convertedBucket,
+  ensureStorageBuckets,
+  minioClient,
+} from "../storage/minio.js";
+import {
+  objectExists,
+  removeObjectIfExists,
+} from "../storage/object-lifecycle.js";
+import { downloadUrlToFile, uploadFileAsObject } from "../storage/object-files.js";
 import { processClaimedConversionJob } from "./process-claimed-conversion-job.js";
 
 const MAX_CONVERSION_ATTEMPTS = 3;
+
+const processingDependencies = {
+  resultBucket: convertedBucket,
+  objectExists: (bucketName: string, objectKey: string) =>
+    objectExists(minioClient, bucketName, objectKey),
+  removeObjectIfExists: (bucketName: string, objectKey: string) =>
+    removeObjectIfExists(minioClient, bucketName, objectKey),
+  downloadUrlToFile,
+  convertMedia,
+  uploadFileAsObject,
+  createDownloadUrl,
+  completeConversionJob,
+};
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim() !== "") {
@@ -212,7 +237,7 @@ async function handleMessage(
   }
 
   try {
-    await processClaimedConversionJob(job, event);
+    await processClaimedConversionJob(job, event, processingDependencies);
   } catch (error) {
     await handleProcessingFailure(
       channel,

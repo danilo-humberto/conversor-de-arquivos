@@ -12,6 +12,12 @@ A composição inicia PostgreSQL, RabbitMQ, MinIO, Mailpit, migrations, API, dis
 
 Os containers usam `minio:9000` internamente. Os links enviados por e-mail usam `MINIO_PUBLIC_ENDPOINT` e, por padrão local, apontam para `localhost:9000`. Em outro ambiente, configure essa variável com o host público do MinIO.
 
+## Prazos do processamento
+
+- A URL assinada do arquivo de origem é válida por sete dias (`MINIO_SOURCE_URL_EXPIRY_SECONDS=604800`, por padrão).
+- Cada conversão tem um *lease* de 120 segundos: é a reserva temporária que impede que dois workers processem o mesmo job ao mesmo tempo.
+- Enquanto processa, o worker renova esse lease por meio de um *heartbeat* a cada 30 segundos. Se a renovação falhar ou o lease expirar, o processamento deixa de ter posse do job e não pode concluí-lo.
+
 Depois da inicialização, acesse:
 
 - Conversor: http://localhost:3000

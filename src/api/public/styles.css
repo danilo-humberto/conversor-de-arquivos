@@ -149,6 +149,24 @@ select:disabled {
   background: #fff1f0;
 }
 
+.form-feedback {
+  margin: 20px 0 0;
+  color: #a1221b;
+  font-weight: 600;
+}
+
+.back-link {
+  display: inline-block;
+  margin-bottom: 28px;
+  color: #1a5aa8;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.back-link:hover {
+  text-decoration: underline;
+}
+
 .status-label,
 .status-message,
 .job-id {

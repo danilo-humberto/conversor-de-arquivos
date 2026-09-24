@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Acompanhe sua conversão de mídia." />
+    <title>Acompanhar conversão</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="page-shell">
+      <section class="converter status-view" aria-labelledby="page-title">
+        <a class="back-link" href="/">Enviar outra conversão</a>
+        <div class="intro">
+          <p class="eyebrow">Acompanhamento</p>
+          <h1 id="page-title">Sua conversão</h1>
+          <p id="job-id" class="job-id"></p>
+        </div>
+
+        <section id="status-panel" class="status-panel" aria-live="polite">
+          <p class="status-label" id="status-label">Consultando status</p>
+          <p class="status-message" id="status-message"></p>
+          <a id="download-link" href="" target="_blank" rel="noopener" hidden>
+            Baixar arquivo convertido
+          </a>
+        </section>
+      </section>
+    </main>
+
+    <script type="module" src="/status.js"></script>
+  </body>
+</html>

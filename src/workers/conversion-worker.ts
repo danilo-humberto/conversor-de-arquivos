@@ -11,15 +11,12 @@ import {
   createConversionRequestedRetryEvent,
   parseConversionRequestedEventJson,
   serializeConversionRequestedEvent,
-  type ConversionRequestedEvent,
 } from "../contracts/conversion-events.js";
 import {
   claimConversionJob,
   getConversionJobState,
-  type ClaimedConversionJob,
 } from "../jobs/claim-conversion-job.js";
 import {
-  ConversionJobLeaseLostError,
   startConversionJobHeartbeat,
 } from "../jobs/conversion-job-heartbeat.js";
 import {
@@ -29,7 +26,6 @@ import {
 import { convertMedia } from "../conversion/ffmpeg.js";
 import {
   completeConversionJob,
-  JobCompletionError,
 } from "../jobs/complete-conversion-job.js";
 import { createDownloadUrl } from "../storage/download-url.js";
 import {
@@ -43,8 +39,7 @@ import {
 } from "../storage/object-lifecycle.js";
 import { downloadUrlToFile, uploadFileAsObject } from "../storage/object-files.js";
 import { processClaimedConversionJob } from "./process-claimed-conversion-job.js";
-
-const MAX_CONVERSION_ATTEMPTS = 3;
+import { handleConversionMessage } from "./handle-conversion-message.js";
 
 const processingDependencies = {
   resultBucket: convertedBucket,
@@ -59,14 +54,6 @@ const processingDependencies = {
   createDownloadUrl,
   completeConversionJob,
 };
-
-function getErrorMessage(error: unknown): string {
-  if (error instanceof Error && error.message.trim() !== "") {
-    return error.message;
-  }
-
-  return "Unknown conversion error.";
-}
 
 async function publishWithConfirmation(
   channel: ConfirmChannel,
@@ -101,198 +88,57 @@ async function moveMessageToDeadLetterQueue(
   channel.ack(message);
 }
 
-async function retryConversionMessage(
-  channel: ConfirmChannel,
-  message: ConsumeMessage,
-  event: ConversionRequestedEvent,
-  queueName: string,
-  reason: string,
-  attempt: number,
-): Promise<void> {
-  const retryEvent = createConversionRequestedRetryEvent(event, attempt);
-
-  channel.sendToQueue(
-    queueName,
-    Buffer.from(serializeConversionRequestedEvent(retryEvent)),
-    {
-      contentType: "application/json",
-      headers: {
-        "x-error-reason": reason,
-        "x-original-queue": conversionQueue,
-      },
-      messageId: event.eventId,
-      persistent: true,
-      type: event.type,
-    },
-  );
-
-  await channel.waitForConfirms();
-  channel.ack(message);
-}
-
-async function handleProcessingFailure(
-  channel: ConfirmChannel,
-  message: ConsumeMessage,
-  event: ConversionRequestedEvent,
-  job: ClaimedConversionJob,
-  errorMessage: string,
-): Promise<void> {
-  const failureInput = {
-    jobId: job.id,
-    processingToken: job.processingToken,
-    errorMessage,
-  };
-
-  if (job.attemptCount < MAX_CONVERSION_ATTEMPTS) {
-    await releaseConversionJobForRetry(failureInput);
-
-    const retryQueue =
-      job.attemptCount === 1
-        ? conversionRetry5SecondsQueue
-        : conversionRetry30SecondsQueue;
-
-    await retryConversionMessage(
-      channel,
-      message,
-      event,
-      retryQueue,
-      errorMessage,
-      job.attemptCount + 1,
-    );
-
-    return;
-  }
-
-  await markConversionJobAsFailed({
-    ...failureInput,
-    notifyEmail: event.notifyEmail,
-  });
-
-  await moveMessageToDeadLetterQueue(channel, message, errorMessage);
-}
-
-async function handleUnclaimedJob(
-  channel: ConfirmChannel,
-  message: ConsumeMessage,
-  event: ConversionRequestedEvent,
-): Promise<void> {
-  const jobState = await getConversionJobState(event.jobId);
-
-  if (
-    jobState === null ||
-    jobState.status === "CONCLUÍDO" ||
-    jobState.status === "ERRO"
-  ) {
-    channel.ack(message);
-
-    return;
-  }
-
-  const retryQueue =
-    jobState.status === "PROCESSANDO"
-      ? conversionRetry30SecondsQueue
-      : conversionRetry5SecondsQueue;
-
-  await retryConversionMessage(
-    channel,
-    message,
-    event,
-    retryQueue,
-    "Job is not currently available for processing.",
-    event.attempt,
-  );
-}
-
 async function handleMessage(
   channel: ConfirmChannel,
   message: ConsumeMessage,
 ): Promise<void> {
-  let event: ConversionRequestedEvent;
-
-  try {
-    event = parseConversionRequestedEventJson(message.content.toString("utf8"));
-  } catch (error) {
-    await moveMessageToDeadLetterQueue(
-      channel,
-      message,
-      getErrorMessage(error),
-    );
-
-    return;
-  }
-
-  let job: ClaimedConversionJob | null;
-
-  try {
-    job = await claimConversionJob(event.jobId);
-  } catch (error) {
-    await retryConversionMessage(
-      channel,
-      message,
-      event,
-      conversionRetry5SecondsQueue,
-      getErrorMessage(error),
-      event.attempt,
-    );
-
-    return;
-  }
-
-  if (job === null) {
-    await handleUnclaimedJob(channel, message, event);
-
-    return;
-  }
-
-  try {
-    const heartbeat = startConversionJobHeartbeat(job.id, job.processingToken);
-    let processingError: unknown;
-
-    try {
-      await processClaimedConversionJob(job, event, {
-        ...processingDependencies,
-        assertProcessingOwnership: () => heartbeat.assertOwnership(),
-      });
-      heartbeat.assertOwnership();
-    } catch (error) {
-      processingError = error;
-    } finally {
-      await heartbeat.stop();
-    }
-
-    if (processingError !== undefined) {
-      heartbeat.assertOwnership();
-      throw processingError;
-    }
-  } catch (error) {
-    if (
-      error instanceof ConversionJobLeaseLostError ||
-      error instanceof JobCompletionError
-    ) {
-      await retryConversionMessage(
-        channel,
-        message,
-        event,
-        conversionRetry30SecondsQueue,
-        getErrorMessage(error),
-        event.attempt,
-      );
-
-      return;
-    }
-
-    await handleProcessingFailure(
-      channel,
-      message,
-      event,
-      job,
-      getErrorMessage(error),
-    );
-
-    return;
-  }
-
-  channel.ack(message);
+  await handleConversionMessage(
+    { content: message.content },
+    {
+      parseEvent: (serialized) => parseConversionRequestedEventJson(serialized),
+      claimConversionJob,
+      getConversionJobState,
+      startHeartbeat: startConversionJobHeartbeat,
+      processClaimedJob: (job, event, assertProcessingOwnership) =>
+        processClaimedConversionJob(job, event, {
+          ...processingDependencies,
+          assertProcessingOwnership,
+        }),
+      releaseForRetry: releaseConversionJobForRetry,
+      markAsFailed: markConversionJobAsFailed,
+    },
+    {
+      acknowledge() {
+        channel.ack(message);
+      },
+      async retry({ event, queueName, reason, attempt }) {
+        const retryEvent = createConversionRequestedRetryEvent(event, attempt);
+        channel.sendToQueue(
+          queueName,
+          Buffer.from(serializeConversionRequestedEvent(retryEvent)),
+          {
+            contentType: "application/json",
+            headers: {
+              "x-error-reason": reason,
+              "x-original-queue": conversionQueue,
+            },
+            messageId: event.eventId,
+            persistent: true,
+            type: event.type,
+          },
+        );
+        await channel.waitForConfirms();
+        channel.ack(message);
+      },
+      async deadLetter(_, reason) {
+        await moveMessageToDeadLetterQueue(channel, message, reason);
+      },
+    },
+    {
+      retryAfter5Seconds: conversionRetry5SecondsQueue,
+      retryAfter30Seconds: conversionRetry30SecondsQueue,
+    },
+  );
 }
 
 async function startConversionWorker(): Promise<void> {

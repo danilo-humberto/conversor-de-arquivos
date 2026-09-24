@@ -5,6 +5,7 @@
   "description": "Conversor distribuído de vídeo e áudio",
   "main": "index.js",
   "scripts": {
+    "test": "tsx --test src/**/*.test.ts",
     "dev": "tsx watch src/api/server.ts",
     "start:api": "tsx src/api/server.ts",
     "typecheck": "tsc --noEmit",

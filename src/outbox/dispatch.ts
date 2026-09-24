@@ -8,11 +8,33 @@ import { getOutboxDestinationQueue } from "./event-routing.js";
 
 const OUTBOX_LEASE_DURATION_MS = 60_000;
 
-type ClaimedOutboxEvent = {
+export type ClaimedOutboxEvent = {
   id: string;
   eventType: string;
   payload: Record<string, unknown>;
   processingToken: string;
+};
+
+export type OutboxPublisherDependencies = {
+  createChannel(): Promise<{
+    connection: { close(): Promise<void> };
+    channel: {
+      sendToQueue(
+        queueName: string,
+        content: Buffer,
+        options: {
+          contentType: string;
+          messageId: string;
+          persistent: boolean;
+          type: string;
+        },
+      ): boolean;
+      waitForConfirms(): Promise<void>;
+      close(): Promise<void>;
+    };
+  }>;
+  getDestinationQueue(eventType: string): string;
+  markAsPublished(eventId: string, processingToken: string): Promise<void>;
 };
 
 type OutboxRow = {
@@ -112,18 +134,15 @@ async function markOutboxEventAsPublished(
   }
 }
 
-export async function dispatchNextOutboxEvent(): Promise<boolean> {
-  const event = await claimNextOutboxEvent();
-
-  if (!event) {
-    return false;
-  }
-
-  const { connection, channel } = await createRabbitMqConfirmChannel();
+export async function publishClaimedOutboxEvent(
+  event: ClaimedOutboxEvent,
+  dependencies: OutboxPublisherDependencies,
+): Promise<void> {
+  const { connection, channel } = await dependencies.createChannel();
 
   try {
     channel.sendToQueue(
-      getOutboxDestinationQueue(event.eventType),
+      dependencies.getDestinationQueue(event.eventType),
       Buffer.from(JSON.stringify(event.payload)),
       {
         contentType: "application/json",
@@ -134,14 +153,27 @@ export async function dispatchNextOutboxEvent(): Promise<boolean> {
     );
 
     await channel.waitForConfirms();
-
-    await markOutboxEventAsPublished(event.id, event.processingToken);
-
-    return true;
+    await dependencies.markAsPublished(event.id, event.processingToken);
   } finally {
     await channel.close();
     await connection.close();
   }
+}
+
+export async function dispatchNextOutboxEvent(): Promise<boolean> {
+  const event = await claimNextOutboxEvent();
+
+  if (!event) {
+    return false;
+  }
+
+  await publishClaimedOutboxEvent(event, {
+    createChannel: createRabbitMqConfirmChannel,
+    getDestinationQueue: getOutboxDestinationQueue,
+    markAsPublished: markOutboxEventAsPublished,
+  });
+
+  return true;
 }
 
 export async function dispatchPendingOutboxEvents(): Promise<number> {

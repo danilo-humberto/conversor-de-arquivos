@@ -6,6 +6,7 @@ const submitButton = document.querySelector("#submit-button");
 const statusPanel = document.querySelector("#status-panel");
 const statusLabel = document.querySelector("#status-label");
 const statusMessage = document.querySelector("#status-message");
+const downloadLink = document.querySelector("#download-link");
 const jobIdElement = document.querySelector("#job-id");
 
 const formatsByMediaType = {
@@ -22,11 +23,13 @@ function getMediaType(file) {
   return null;
 }
 
-function showStatus(label, message, isError = false) {
+function showStatus(label, message, isError = false, downloadUrl) {
   statusPanel.hidden = false;
   statusPanel.dataset.error = String(isError);
   statusLabel.textContent = label;
   statusMessage.textContent = message;
+  downloadLink.hidden = typeof downloadUrl !== "string";
+  downloadLink.href = typeof downloadUrl === "string" ? downloadUrl : "";
 }
 
 function setSubmissionState(isSubmitting) {
@@ -80,8 +83,11 @@ async function checkJobStatus(jobId) {
 
     showStatus(
       `Status: ${status}`,
-      messages[status] || "Atualizando status...",
+      status === "CONCLUÍDO" && job.downloadUrl
+        ? "Conversão concluída. Baixe o arquivo convertido abaixo. Você também receberá a confirmação por e-mail."
+        : messages[status] || "Atualizando status...",
       status === "ERRO",
+      status === "CONCLUÍDO" ? job.downloadUrl : undefined,
     );
 
     if (terminalStatuses.has(status)) {

@@ -47,6 +47,10 @@ function readPositiveInteger(name: string, defaultValue: number): number {
   return numberValue;
 }
 
+const minioEndpoint = readRequiredEnv("MINIO_ENDPOINT");
+const minioPort = readPort("MINIO_PORT", 9000);
+const minioUseSSL = readBoolean("MINIO_USE_SSL", false);
+
 export const env = {
   port: readPort("PORT", 3000),
   postgres: {
@@ -64,13 +68,17 @@ export const env = {
     vhost: readRequiredEnv("RABBITMQ_VHOST"),
   },
   minio: {
-    endpoint: readRequiredEnv("MINIO_ENDPOINT"),
-    port: readPort("MINIO_PORT", 9000),
-    useSSL: readBoolean("MINIO_USE_SSL", false),
+    endpoint: minioEndpoint,
+    port: minioPort,
+    useSSL: minioUseSSL,
+    publicEndpoint: process.env.MINIO_PUBLIC_ENDPOINT || minioEndpoint,
+    publicPort: readPort("MINIO_PUBLIC_PORT", minioPort),
+    publicUseSSL: readBoolean("MINIO_PUBLIC_USE_SSL", minioUseSSL),
     rootUser: readRequiredEnv("MINIO_ROOT_USER"),
     rootPassword: readRequiredEnv("MINIO_ROOT_PASSWORD"),
   },
   maxUploadSizeBytes: readPositiveInteger("MAX_UPLOAD_SIZE_BYTES", 104857600), // 100 MB
+  outboxPollIntervalMs: readPositiveInteger("OUTBOX_POLL_INTERVAL_MS", 1000),
   smtp: {
     host: readRequiredEnv("SMTP_HOST"),
     port: readPort("SMTP_PORT", 1025),

@@ -67,11 +67,27 @@
         >
           <p class="status-label" id="status-label">Preparando envio</p>
           <p class="status-message" id="status-message"></p>
-          <a id="download-link" href="" hidden>Baixar arquivo convertido</a>
+          <a id="download-link" href="" target="_blank" rel="noopener" hidden>
+            Baixar arquivo convertido
+          </a>
           <p class="job-id" id="job-id" hidden></p>
         </section>
       </section>
     </main>
+
+    <dialog id="conversion-accepted-modal" class="confirmation-modal" aria-labelledby="confirmation-title">
+      <div class="confirmation-modal__content">
+        <p class="eyebrow">Solicitação aceita</p>
+        <h2 id="confirmation-title">Sua conversão está sendo realizada</h2>
+        <p>
+          Você receberá uma confirmação por e-mail quando o arquivo estiver
+          pronto.
+        </p>
+        <button id="track-conversion-button" type="button">
+          Acompanhar conversão
+        </button>
+      </div>
+    </dialog>
 
     <script type="module" src="/app.js"></script>
   </body>

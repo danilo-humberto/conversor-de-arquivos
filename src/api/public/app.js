@@ -8,19 +8,36 @@ const statusLabel = document.querySelector("#status-label");
 const statusMessage = document.querySelector("#status-message");
 const downloadLink = document.querySelector("#download-link");
 const jobIdElement = document.querySelector("#job-id");
+const confirmationModal = document.querySelector("#conversion-accepted-modal");
+const trackConversionButton = document.querySelector("#track-conversion-button");
 
-const formatsByMediaType = {
-  audio: ["mp3", "wav"],
-  video: ["mp4", "webm"],
+const targetFormatBySourceFormat = {
+  mp3: "wav",
+  wav: "mp3",
+  mp4: "webm",
+  webm: "mp4",
 };
 
 const terminalStatuses = new Set(["CONCLUÍDO", "ERRO"]);
 let pollingTimer;
+let acceptedJobId;
 
-function getMediaType(file) {
-  if (file.type.startsWith("audio/")) return "audio";
-  if (file.type.startsWith("video/")) return "video";
-  return null;
+function getSourceFormat(file) {
+  const extension = file.name.split(".").pop()?.toLowerCase();
+
+  if (extension && extension in targetFormatBySourceFormat) {
+    return extension;
+  }
+
+  const formatByMimeType = {
+    "audio/mpeg": "mp3",
+    "audio/wav": "wav",
+    "audio/x-wav": "wav",
+    "video/mp4": "mp4",
+    "video/webm": "webm",
+  };
+
+  return formatByMimeType[file.type] ?? null;
 }
 
 function showStatus(label, message, isError = false, downloadUrl) {
@@ -41,22 +58,19 @@ function setSubmissionState(isSubmitting) {
 
 function configureFormats() {
   const [file] = fileInput.files;
-  const mediaType = file && getMediaType(file);
+  const sourceFormat = file && getSourceFormat(file);
 
   targetFormatInput.replaceChildren();
 
-  if (!mediaType) {
+  if (!sourceFormat) {
     targetFormatInput.disabled = true;
-    targetFormatInput.add(new Option("Escolha primeiro um arquivo", ""));
+    targetFormatInput.add(new Option("Selecione um arquivo MP3, WAV, MP4 ou WebM", ""));
     return;
   }
 
   targetFormatInput.disabled = false;
-  targetFormatInput.add(new Option("Selecione o formato", ""));
-
-  for (const format of formatsByMediaType[mediaType]) {
-    targetFormatInput.add(new Option(format.toUpperCase(), format));
-  }
+  const targetFormat = targetFormatBySourceFormat[sourceFormat];
+  targetFormatInput.add(new Option(targetFormat.toUpperCase(), targetFormat));
 }
 
 function stopPolling() {
@@ -108,9 +122,27 @@ fileInput.addEventListener("change", () => {
   configureFormats();
   const [file] = fileInput.files;
 
-  if (file && !getMediaType(file)) {
-    showStatus("Arquivo não suportado", "Selecione um arquivo de áudio ou vídeo.", true);
+  if (file && !getSourceFormat(file)) {
+    showStatus(
+      "Arquivo não suportado",
+      "Selecione um arquivo MP3, WAV, MP4 ou WebM.",
+      true,
+    );
   }
+});
+
+confirmationModal.addEventListener("cancel", (event) => {
+  event.preventDefault();
+});
+
+trackConversionButton.addEventListener("click", () => {
+  if (!acceptedJobId) return;
+
+  confirmationModal.close();
+  jobIdElement.textContent = `Código da conversão: ${acceptedJobId}`;
+  jobIdElement.hidden = false;
+  showStatus("Conversão criada", "Acompanhando o processamento do seu arquivo.");
+  void checkJobStatus(acceptedJobId);
 });
 
 form.addEventListener("submit", async (event) => {
@@ -119,9 +151,9 @@ form.addEventListener("submit", async (event) => {
   jobIdElement.hidden = true;
 
   const [file] = fileInput.files;
-  const mediaType = file && getMediaType(file);
+  const sourceFormat = file && getSourceFormat(file);
 
-  if (!file || !mediaType || !targetFormatInput.value || !emailInput.validity.valid) {
+  if (!file || !sourceFormat || !targetFormatInput.value || !emailInput.validity.valid) {
     form.reportValidity();
     showStatus("Revise o formulário", "Informe um arquivo válido, formato e e-mail.", true);
     return;
@@ -142,10 +174,9 @@ form.addEventListener("submit", async (event) => {
       throw new Error(job.message || job.error || "Não foi possível criar a conversão.");
     }
 
-    jobIdElement.textContent = `Código da conversão: ${job.jobId}`;
-    jobIdElement.hidden = false;
-    showStatus("Conversão criada", "Acompanhando o processamento do seu arquivo.");
-    await checkJobStatus(job.jobId);
+    acceptedJobId = job.jobId;
+    statusPanel.hidden = true;
+    confirmationModal.showModal();
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erro ao enviar o arquivo.";
     showStatus("Não foi possível enviar", message, true);

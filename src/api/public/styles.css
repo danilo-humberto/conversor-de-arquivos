@@ -155,6 +155,41 @@ select:disabled {
   margin: 0;
 }
 
+.confirmation-modal {
+  width: min(calc(100% - 40px), 460px);
+  border: 0;
+  border-radius: 18px;
+  padding: 0;
+  color: #182235;
+  box-shadow: 0 24px 60px rgb(24 34 53 / 24%);
+}
+
+.confirmation-modal::backdrop {
+  background: rgb(24 34 53 / 48%);
+}
+
+.confirmation-modal__content {
+  display: grid;
+  gap: 16px;
+  padding: 32px;
+}
+
+.confirmation-modal__content .eyebrow,
+.confirmation-modal__content h2,
+.confirmation-modal__content p {
+  margin: 0;
+}
+
+.confirmation-modal__content h2 {
+  font-size: 1.5rem;
+  letter-spacing: -0.025em;
+}
+
+.confirmation-modal__content p:not(.eyebrow) {
+  color: #526178;
+  line-height: 1.55;
+}
+
 .status-label {
   font-weight: 700;
 }

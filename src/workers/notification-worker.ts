@@ -7,32 +7,21 @@ import {
   notificationRetry5SecondsQueue,
   notificationRetry30SecondsQueue,
 } from "../broker/rabbitmq.js";
-import {
-  parseConversionFinishedEventJson,
-  type ConversionFinishedEvent,
-} from "../contracts/conversion-events.js";
+import { parseConversionFinishedEventJson } from "../contracts/conversion-events.js";
 import {
   claimNotification,
   getNotificationState,
-  type ClaimedNotification,
 } from "../notifications/claim-notification.js";
-import { createConversionCompletedEmail } from "../notifications/conversion-completed-email.js";
-import { createConversionFailedEmail } from "../notifications/conversion-failed-email.js";
-import {
-  releaseNotificationForRetry,
-  markNotificationAsSent,
-} from "../notifications/update-notification.js";
 import { sendEmail } from "../notifications/smtp.js";
-
-const MAX_NOTIFICATION_ATTEMPTS = 3;
-
-function getErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return "Unknown notification error.";
-}
+import {
+  markNotificationAsFailed,
+  markNotificationAsSent,
+  releaseNotificationForRetry,
+} from "../notifications/update-notification.js";
+import {
+  handleNotificationMessage,
+  type NotificationMessage,
+} from "./handle-notification-message.js";
 
 async function publishWithConfirmation(
   channel: ConfirmChannel,
@@ -52,163 +41,8 @@ async function publishWithConfirmation(
   await channel.waitForConfirms();
 }
 
-async function moveMessageToDeadLetterQueue(
-  channel: ConfirmChannel,
-  message: ConsumeMessage,
-  reason: string,
-): Promise<void> {
-  await publishWithConfirmation(
-    channel,
-    notificationDeadLetterQueue,
-    message.content,
-    reason,
-  );
-
-  channel.ack(message);
-}
-
-async function retryMessage(
-  channel: ConfirmChannel,
-  message: ConsumeMessage,
-  queueName: string,
-  reason: string,
-): Promise<void> {
-  await publishWithConfirmation(channel, queueName, message.content, reason);
-
-  channel.ack(message);
-}
-
-async function processClaimedNotification(
-  notification: ClaimedNotification,
-  event: ConversionFinishedEvent,
-): Promise<void> {
-  const email =
-    event.status === "CONCLUÍDO"
-      ? createConversionCompletedEmail({
-          jobId: event.jobId,
-          downloadUrl: event.resultUrl,
-        })
-      : createConversionFailedEmail({
-          jobId: event.jobId,
-          error: event.error,
-        });
-
-  await sendEmail({
-    to: event.notifyEmail,
-    ...email,
-  });
-
-  await markNotificationAsSent({
-    jobId: notification.jobId,
-    notificationToken: notification.notificationToken,
-  });
-}
-
-async function handleNotificationFailure(
-  channel: ConfirmChannel,
-  message: ConsumeMessage,
-  notification: ClaimedNotification,
-  errorMessage: string,
-): Promise<void> {
-  await releaseNotificationForRetry({
-    jobId: notification.jobId,
-    notificationToken: notification.notificationToken,
-    errorMessage,
-  });
-
-  if (notification.attemptCount < MAX_NOTIFICATION_ATTEMPTS) {
-    const retryQueue =
-      notification.attemptCount === 1
-        ? notificationRetry5SecondsQueue
-        : notificationRetry30SecondsQueue;
-
-    await retryMessage(channel, message, retryQueue, errorMessage);
-
-    return;
-  }
-
-  await moveMessageToDeadLetterQueue(channel, message, errorMessage);
-}
-
-async function handleUnclaimedNotification(
-  channel: ConfirmChannel,
-  message: ConsumeMessage,
-  jobId: string,
-): Promise<void> {
-  const notificationState = await getNotificationState(jobId);
-
-  if (notificationState === null || notificationState.status === "SENT") {
-    channel.ack(message);
-
-    return;
-  }
-
-  const retryQueue =
-    notificationState.status === "SENDING"
-      ? notificationRetry30SecondsQueue
-      : notificationRetry5SecondsQueue;
-
-  await retryMessage(
-    channel,
-    message,
-    retryQueue,
-    "Notification is not currently available for processing.",
-  );
-}
-
-async function handleMessage(
-  channel: ConfirmChannel,
-  message: ConsumeMessage,
-): Promise<void> {
-  let event: ConversionFinishedEvent;
-
-  try {
-    event = parseConversionFinishedEventJson(message.content.toString("utf8"));
-  } catch (error) {
-    await moveMessageToDeadLetterQueue(
-      channel,
-      message,
-      getErrorMessage(error),
-    );
-
-    return;
-  }
-
-  let notification: ClaimedNotification | null;
-
-  try {
-    notification = await claimNotification(event.jobId);
-  } catch (error) {
-    await retryMessage(
-      channel,
-      message,
-      notificationRetry5SecondsQueue,
-      getErrorMessage(error),
-    );
-
-    return;
-  }
-
-  if (notification === null) {
-    await handleUnclaimedNotification(channel, message, event.jobId);
-
-    return;
-  }
-
-  try {
-    await processClaimedNotification(notification, event);
-  } catch (error) {
-    await handleNotificationFailure(
-      channel,
-      message,
-      notification,
-      getErrorMessage(error),
-    );
-
-    return;
-  }
-
-  channel.ack(message);
+function toNotificationMessage(message: ConsumeMessage): NotificationMessage {
+  return { content: message.content };
 }
 
 async function startNotificationWorker(): Promise<void> {
@@ -221,11 +55,50 @@ async function startNotificationWorker(): Promise<void> {
     (message) => {
       if (message === null) {
         console.warn("Notification consumer was cancelled.");
-
         return;
       }
 
-      void handleMessage(channel, message).catch(async (error) => {
+      const workerMessage = toNotificationMessage(message);
+
+      void handleNotificationMessage(
+        workerMessage,
+        {
+          parseEvent: parseConversionFinishedEventJson,
+          claimNotification,
+          getNotificationState,
+          sendEmail,
+          markNotificationAsSent,
+          releaseNotificationForRetry,
+          markNotificationAsFailed,
+        },
+        {
+          acknowledge() {
+            channel.ack(message);
+          },
+          async retry(_, queueName, reason) {
+            await publishWithConfirmation(
+              channel,
+              queueName,
+              workerMessage.content,
+              reason,
+            );
+            channel.ack(message);
+          },
+          async deadLetter(_, reason) {
+            await publishWithConfirmation(
+              channel,
+              notificationDeadLetterQueue,
+              workerMessage.content,
+              reason,
+            );
+            channel.ack(message);
+          },
+        },
+        {
+          retryAfter5Seconds: notificationRetry5SecondsQueue,
+          retryAfter30Seconds: notificationRetry30SecondsQueue,
+        },
+      ).catch(async (error) => {
         console.error("Notification worker failed.", error);
 
         await channel.close();
@@ -234,9 +107,7 @@ async function startNotificationWorker(): Promise<void> {
         process.exitCode = 1;
       });
     },
-    {
-      noAck: false,
-    },
+    { noAck: false },
   );
 
   console.log("Notification worker is waiting for messages.");

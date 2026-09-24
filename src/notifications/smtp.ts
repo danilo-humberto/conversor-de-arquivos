@@ -13,6 +13,7 @@ type SendEmailInput = {
   subject: string;
   text: string;
   html: string;
+  messageId: string;
 };
 
 export async function verifySmtpConnection(): Promise<void> {
@@ -26,5 +27,6 @@ export async function sendEmail(input: SendEmailInput): Promise<void> {
     subject: input.subject,
     text: input.text,
     html: input.html,
+    messageId: input.messageId,
   });
 }

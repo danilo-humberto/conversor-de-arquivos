@@ -44,6 +44,7 @@ export async function completeConversionJob(
         WHERE id = $1
           AND status = 'PROCESSANDO'
           AND processing_token = $2
+          AND lease_expires_at > NOW()
         RETURNING id
       `,
       [

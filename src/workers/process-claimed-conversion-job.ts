@@ -9,6 +9,7 @@ import { type completeConversionJob } from "../jobs/complete-conversion-job.js";
 
 export type ConversionProcessingDependencies = {
   resultBucket: string;
+  assertProcessingOwnership(): void;
   objectExists(bucketName: string, objectKey: string): Promise<boolean>;
   removeObjectIfExists(bucketName: string, objectKey: string): Promise<void>;
   downloadUrlToFile(sourceUrl: string, destinationPath: string): Promise<void>;
@@ -30,6 +31,8 @@ export async function processClaimedConversionJob(
   const outputFileName = `result.${event.targetFormat}`;
   const resultObjectKey = `${job.id}/${outputFileName}`;
 
+  dependencies.assertProcessingOwnership();
+
   if (
     !(await dependencies.objectExists(dependencies.resultBucket, resultObjectKey))
   ) {
@@ -41,28 +44,34 @@ export async function processClaimedConversionJob(
 
     try {
       await dependencies.downloadUrlToFile(event.sourceUrl, inputPath);
+      dependencies.assertProcessingOwnership();
       await dependencies.convertMedia({
         inputPath,
         outputPath,
         sourceType: event.sourceType,
         targetFormat: event.targetFormat,
       });
+      dependencies.assertProcessingOwnership();
       await dependencies.uploadFileAsObject(
         dependencies.resultBucket,
         resultObjectKey,
         outputPath,
       );
+      dependencies.assertProcessingOwnership();
     } finally {
       await rm(workingDirectory, { force: true, recursive: true });
     }
   }
 
+  dependencies.assertProcessingOwnership();
   await dependencies.removeObjectIfExists(job.sourceBucket, job.sourceObjectKey);
+  dependencies.assertProcessingOwnership();
   const resultUrl = await dependencies.createDownloadUrl(
     dependencies.resultBucket,
     resultObjectKey,
   );
 
+  dependencies.assertProcessingOwnership();
   await dependencies.completeConversionJob({
     jobId: job.id,
     processingToken: job.processingToken,

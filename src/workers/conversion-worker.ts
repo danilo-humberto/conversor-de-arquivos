@@ -19,11 +19,18 @@ import {
   type ClaimedConversionJob,
 } from "../jobs/claim-conversion-job.js";
 import {
+  ConversionJobLeaseLostError,
+  startConversionJobHeartbeat,
+} from "../jobs/conversion-job-heartbeat.js";
+import {
   markConversionJobAsFailed,
   releaseConversionJobForRetry,
 } from "../jobs/fail-conversion-job.js";
 import { convertMedia } from "../conversion/ffmpeg.js";
-import { completeConversionJob } from "../jobs/complete-conversion-job.js";
+import {
+  completeConversionJob,
+  JobCompletionError,
+} from "../jobs/complete-conversion-job.js";
 import { createDownloadUrl } from "../storage/download-url.js";
 import {
   convertedBucket,
@@ -41,6 +48,7 @@ const MAX_CONVERSION_ATTEMPTS = 3;
 
 const processingDependencies = {
   resultBucket: convertedBucket,
+  assertProcessingOwnership: () => undefined,
   objectExists: (bucketName: string, objectKey: string) =>
     objectExists(minioClient, bucketName, objectKey),
   removeObjectIfExists: (bucketName: string, objectKey: string) =>
@@ -237,8 +245,42 @@ async function handleMessage(
   }
 
   try {
-    await processClaimedConversionJob(job, event, processingDependencies);
+    const heartbeat = startConversionJobHeartbeat(job.id, job.processingToken);
+    let processingError: unknown;
+
+    try {
+      await processClaimedConversionJob(job, event, {
+        ...processingDependencies,
+        assertProcessingOwnership: () => heartbeat.assertOwnership(),
+      });
+      heartbeat.assertOwnership();
+    } catch (error) {
+      processingError = error;
+    } finally {
+      await heartbeat.stop();
+    }
+
+    if (processingError !== undefined) {
+      heartbeat.assertOwnership();
+      throw processingError;
+    }
   } catch (error) {
+    if (
+      error instanceof ConversionJobLeaseLostError ||
+      error instanceof JobCompletionError
+    ) {
+      await retryConversionMessage(
+        channel,
+        message,
+        event,
+        conversionRetry30SecondsQueue,
+        getErrorMessage(error),
+        event.attempt,
+      );
+
+      return;
+    }
+
     await handleProcessingFailure(
       channel,
       message,

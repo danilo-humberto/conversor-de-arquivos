@@ -32,6 +32,7 @@ const resultKey = `${job.id}/result.wav`;
 function createDependencies(steps: string[], resultExists = false): ConversionProcessingDependencies {
   return {
     resultBucket: "converted",
+    assertProcessingOwnership() {},
     async objectExists(bucketName, objectKey) {
       assert.deepEqual([bucketName, objectKey], ["converted", resultKey]);
       steps.push("check result");
@@ -118,6 +119,27 @@ test("falha de remoção impede conclusão e evento de sucesso", async () => {
   await assert.rejects(processClaimedConversionJob(job, event, dependencies), removalFailure);
 
   assert.deepEqual(steps, ["check result", "download", "convert", "upload", "remove source"]);
+});
+
+test("perda da posse antes da limpeza impede remoção da origem e conclusão", async () => {
+  const steps: string[] = [];
+  const dependencies = createDependencies(steps, true);
+  let ownershipChecks = 0;
+
+  dependencies.assertProcessingOwnership = () => {
+    ownershipChecks += 1;
+
+    if (ownershipChecks === 2) {
+      throw new Error("Conversion job processing lease was lost.");
+    }
+  };
+
+  await assert.rejects(
+    processClaimedConversionJob(job, event, dependencies),
+    /lease was lost/,
+  );
+
+  assert.deepEqual(steps, ["check result"]);
 });
 
 test("reentrega após upload e remoção retoma sem reconverter", async () => {

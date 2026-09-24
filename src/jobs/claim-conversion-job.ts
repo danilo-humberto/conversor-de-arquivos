@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { database } from "../db/connection.js";
 
-const JOB_LEASE_DURATION_MS = 5 * 60 * 1000;
+export const CONVERSION_JOB_LEASE_DURATION_MS = 120 * 1000;
 
 type JobRow = {
   id: string;
@@ -49,7 +49,7 @@ export async function claimConversionJob(
           source_bucket,
           source_object_key
     `,
-    [jobId, processingToken, JOB_LEASE_DURATION_MS],
+    [jobId, processingToken, CONVERSION_JOB_LEASE_DURATION_MS],
   );
 
   const job = result.rows.at(0);
@@ -65,6 +65,28 @@ export async function claimConversionJob(
     sourceBucket: job.source_bucket,
     sourceObjectKey: job.source_object_key,
   };
+}
+
+export async function renewConversionJobLease(
+  jobId: string,
+  processingToken: string,
+): Promise<boolean> {
+  const result = await database.query<{ id: string }>(
+    `
+      UPDATE jobs
+      SET
+        lease_expires_at = NOW() + ($3 * INTERVAL '1 millisecond'),
+        updated_at = NOW()
+      WHERE id = $1
+        AND status = 'PROCESSANDO'
+        AND processing_token = $2
+        AND lease_expires_at > NOW()
+      RETURNING id
+    `,
+    [jobId, processingToken, CONVERSION_JOB_LEASE_DURATION_MS],
+  );
+
+  return result.rowCount === 1;
 }
 
 type JobStateRow = {

@@ -98,7 +98,6 @@ form.addEventListener("submit", async (event) => {
   }
 
   setSubmissionState(true);
-  showStatus("Enviando arquivo", "Seu pedido de conversão está sendo criado.");
 
   try {
     const formData = new FormData(form);

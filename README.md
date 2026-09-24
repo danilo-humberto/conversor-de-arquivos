@@ -33,6 +33,16 @@ Para executar dois workers de conversão, use:
 
 O RabbitMQ distribui os jobs entre os workers. A outbox usa locks no PostgreSQL para publicar cada evento pendente uma única vez.
 
+### Benchmark de workers
+
+Com a composição local em execução e a API acessível em `http://localhost:3000`, rode:
+
+    npm run benchmark:workers
+
+O benchmark gera o mesmo WAV determinístico em memória e submete dois lotes iguais (oito jobs de 30 segundos, por padrão): primeiro com um worker e depois com dois. Ele mede o tempo desde o primeiro envio até a conclusão do lote, calcula jobs por segundo, confirma IDs e resultados distintos, uma tentativa por job e consumidores ativos na fila. O script restaura a quantidade inicial de containers de conversão ao terminar. Os jobs e objetos resultantes permanecem no ambiente local.
+
+É possível ajustar o tamanho do lote e do áudio com `BENCHMARK_JOBS` e `BENCHMARK_AUDIO_SECONDS`. A comparação inclui o tempo de envio pela API e espera dos status, portanto serve como benchmark ponta a ponta do fluxo local; resultados dependem dos recursos da máquina e dos serviços locais. O RabbitMQ distribui mensagens entre consumidores, mas o sistema não persiste qual container processou cada job.
+
 ## Validar
 
     npm run typecheck

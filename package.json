@@ -16,6 +16,7 @@
     "outbox:dispatch": "tsx src/scripts/dispatch.ts",
     "worker:outbox": "tsx src/workers/outbox-dispatcher.ts",
     "worker:conversion": "tsx src/workers/conversion-worker.ts",
+    "benchmark:workers": "node scripts/benchmark-workers.mjs",
     "smtp:check": "tsx src/scripts/check-smtp.ts",
     "worker:notification": "tsx src/workers/notification-worker.ts"
   },

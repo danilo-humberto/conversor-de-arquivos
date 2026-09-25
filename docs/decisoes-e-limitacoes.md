@@ -1,18 +1,18 @@
-# Decisoes e limitacoes
+# Decisões e limitações
 
-## Decisoes implementadas
+## Decisões implementadas
 
-1. **Outbox transacional:** evita perder a solicitacao entre gravar o job e publicar no broker. O custo e um processo adicional de polling.
-2. **Lease no PostgreSQL:** coordena replicas sem lock distribuido externo. O token impede que um worker antigo finalize um job cuja posse perdeu.
-3. **Armazenamento de resultado deterministico por job:** facilita retomada apos uma queda entre upload e conclusao do banco.
+1. **Outbox transacional:** evita perder a solicitação entre gravar o job e publicar no broker. O custo é um processo adicional de polling.
+2. **Lease no PostgreSQL:** coordena réplicas sem lock distribuído externo. O token impede que um worker antigo finalize um job cuja posse perdeu.
+3. **Armazenamento de resultado determinístico por job:** facilita retomada após uma queda entre upload e conclusão do banco.
 4. **Retries por filas TTL:** explicita esperas de 5 e 30 segundos sem depender de `sleep` no worker.
-5. **Separacao de conversao e notificacao:** indisponibilidade de SMTP nao bloqueia a conversao.
+5. **Separação de conversão e notificação:** indisponibilidade de SMTP não bloqueia a conversão.
 
-## Limitacoes conhecidas
+## Limitações conhecidas
 
-- O contrato nao expoe cancelamento, autenticacao/autorizacao ou isolamento por usuario.
-- A limpeza de objetos de resultado, DLQs e registros antigos nao possui politica automatica neste repositorio.
-- O upload e anterior a transacao; existe tratamento para remover a origem se a transacao falhar, mas uma indisponibilidade do MinIO na limpeza exige intervencao operacional.
-- A conversao depende de FFmpeg e dos codecs presentes na imagem do worker.
-- O benchmark e local e ponta a ponta; nao representa capacidade de producao nem mede afinidade por replica.
-- `minio:latest` esta presente na composicao, logo a reproducibilidade desse servico depende de fixar uma tag em trabalho futuro.
+- O contrato não expõe cancelamento, autenticação/autorização ou isolamento por usuário.
+- A limpeza de objetos de resultado, DLQs e registros antigos não possui política automática neste repositório.
+- O upload é anterior à transação; existe tratamento para remover a origem se a transação falhar, mas uma indisponibilidade do MinIO na limpeza exige intervenção operacional.
+- A conversão depende de FFmpeg e dos codecs presentes na imagem do worker.
+- O benchmark é local e ponta a ponta; não representa capacidade de produção nem mede afinidade por réplica.
+- `minio:latest` está presente na composição, logo a reprodutibilidade desse serviço depende de fixar uma tag em trabalho futuro.

@@ -86,6 +86,7 @@ test("expiração ou troca de token bloqueia o restante do processamento e limpa
   callback();
   await new Promise((resolve) => setImmediate(resolve));
   assert.throws(() => heartbeat.assertOwnership(), ConversionJobLeaseLostError);
+  assert.equal(heartbeat.signal.aborted, true);
 
   callback();
   await new Promise((resolve) => setImmediate(resolve));
@@ -93,4 +94,67 @@ test("expiração ou troca de token bloqueia o restante do processamento e limpa
 
   await heartbeat.stop();
   assert.equal(clearCount, 1);
+});
+
+test("lease expira e cancela mesmo quando a renovação fica sem resposta", async () => {
+  let tick: (() => void) | undefined;
+  let expire: (() => void) | undefined;
+  let now = 0;
+  const renewal = createDeferred<boolean>();
+  const heartbeat = startConversionJobHeartbeat(jobId, processingToken, {
+    now: () => now,
+    renewLease: () => renewal.promise,
+    setInterval(callback) { tick = callback; return 1 as unknown as NodeJS.Timeout; },
+    clearInterval() {},
+    setTimeout(callback) { expire = callback; return 2 as unknown as NodeJS.Timeout; },
+    clearTimeout() {},
+  });
+  assert.ok(tick);
+  tick();
+  now = 120_000;
+  assert.ok(expire);
+  expire();
+  assert.equal(heartbeat.signal.aborted, true);
+  assert.throws(() => heartbeat.assertOwnership(), ConversionJobLeaseLostError);
+  await heartbeat.stop();
+  renewal.resolve(true);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(heartbeat.signal.aborted, true);
+});
+
+test("deadline bloqueia posse mesmo antes de executar o callback de expiração", async () => {
+  let now = 0;
+  const heartbeat = startConversionJobHeartbeat(jobId, processingToken, {
+    now: () => now,
+    setInterval() { return 1 as unknown as NodeJS.Timeout; }, clearInterval() {},
+    setTimeout() { return 2 as unknown as NodeJS.Timeout; }, clearTimeout() {},
+  });
+  now = 120_000;
+  assert.throws(() => heartbeat.assertOwnership(), ConversionJobLeaseLostError);
+  await heartbeat.stop();
+});
+
+test("renovação confirmada estende o prazo local sem ressuscitar uma posse perdida", async () => {
+  let now = 0;
+  let tick: (() => void) | undefined;
+  const expiryDelays: number[] = [];
+  const heartbeat = startConversionJobHeartbeat(jobId, processingToken, {
+    now: () => now,
+    renewLease: async () => true,
+    setInterval(callback) { tick = callback; return 1 as unknown as NodeJS.Timeout; },
+    clearInterval() {},
+    setTimeout(_callback, delay) { expiryDelays.push(delay); return 2 as unknown as NodeJS.Timeout; },
+    clearTimeout() {},
+  });
+  assert.ok(tick);
+  now = 30_000;
+  tick();
+  await new Promise((resolve) => setImmediate(resolve));
+  now = 120_000;
+  heartbeat.assertOwnership();
+  assert.equal(heartbeat.signal.aborted, false);
+  assert.deepEqual(expiryDelays, [120_000, 120_000]);
+  now = 150_000;
+  assert.throws(() => heartbeat.assertOwnership(), ConversionJobLeaseLostError);
+  await heartbeat.stop();
 });

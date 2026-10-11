@@ -6,8 +6,7 @@ import type {
 import { createConversionCompletedEmail } from "../notifications/conversion-completed-email.js";
 import { createConversionFailedEmail } from "../notifications/conversion-failed-email.js";
 import { createNotificationMessageId } from "../notifications/message-id.js";
-
-export const MAX_NOTIFICATION_ATTEMPTS = 3;
+import { MAX_NOTIFICATION_ATTEMPTS } from "../contracts/processing-policy.js";
 
 export type NotificationMessage = {
   content: Buffer;
@@ -63,7 +62,6 @@ function getErrorMessage(error: unknown): string {
 }
 
 async function sendClaimedNotification(
-  notification: ClaimedNotification,
   event: ConversionFinishedEvent,
   dependencies: NotificationHandlerDependencies,
 ): Promise<void> {
@@ -84,10 +82,32 @@ async function sendClaimedNotification(
     messageId: createNotificationMessageId(event.jobId),
   });
 
-  await dependencies.markNotificationAsSent({
+}
+
+function definitelyNotAccepted(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const smtpError = error as Error & { code?: string; command?: string; responseCode?: number };
+  // Connection/authentication/envelope failures precede message acceptance.
+  // A timeout or disconnect during DATA is ambiguous and must not trigger resend.
+  return smtpError.command === "CONN" || smtpError.command === "AUTH" ||
+    smtpError.command === "MAIL FROM" || smtpError.command === "RCPT TO" ||
+    smtpError.code === "EAUTH" || smtpError.code === "EENVELOPE" ||
+    (typeof smtpError.responseCode === "number" && smtpError.responseCode >= 400);
+}
+
+async function quarantineDelivery(
+  message: NotificationMessage,
+  notification: ClaimedNotification,
+  reason: string,
+  dependencies: NotificationHandlerDependencies,
+  actions: NotificationMessageActions,
+): Promise<void> {
+  await dependencies.markNotificationAsFailed({
     jobId: notification.jobId,
     notificationToken: notification.notificationToken,
+    errorMessage: reason,
   });
+  await actions.deadLetter(message, reason);
 }
 
 async function handleUnclaimedNotification(
@@ -107,7 +127,7 @@ async function handleUnclaimedNotification(
   if (notificationState.status === "FAILED") {
     await actions.deadLetter(
       message,
-      "Notification has already exhausted its delivery attempts.",
+      "Notification requires review or has exhausted its delivery attempts.",
     );
     return;
   }
@@ -157,10 +177,35 @@ export async function handleNotificationMessage(
     return;
   }
 
+  if (notification.deliveryUncertain) {
+    await quarantineDelivery(message, notification,
+      "Delivery outcome uncertain: previous sending lease expired; automatic resend disabled.",
+      dependencies, actions);
+    return;
+  }
+
+  if (notification.attemptsExhausted) {
+    const reason = "Notification has exhausted its delivery attempts.";
+    await dependencies.markNotificationAsFailed({
+      jobId: notification.jobId,
+      notificationToken: notification.notificationToken,
+      errorMessage: reason,
+    });
+    await actions.deadLetter(message, reason);
+    return;
+  }
+
   try {
-    await sendClaimedNotification(notification, event, dependencies);
+    await sendClaimedNotification(event, dependencies);
   } catch (error) {
     const errorMessage = getErrorMessage(error);
+
+    if (!definitelyNotAccepted(error)) {
+      await quarantineDelivery(message, notification,
+        `Delivery outcome uncertain: ${errorMessage}; automatic resend disabled.`,
+        dependencies, actions);
+      return;
+    }
 
     if (notification.attemptCount < MAX_NOTIFICATION_ATTEMPTS) {
       await dependencies.releaseNotificationForRetry({
@@ -188,5 +233,18 @@ export async function handleNotificationMessage(
     return;
   }
 
+  try {
+    await dependencies.markNotificationAsSent({
+      jobId: notification.jobId,
+      notificationToken: notification.notificationToken,
+    });
+  } catch (error) {
+    // SMTP already accepted the message. A database failure must never release
+    // it to PENDING. If quarantine also fails, SENDING remains for safe recovery.
+    await quarantineDelivery(message, notification,
+      `SMTP accepted; SENT persistence failed: ${getErrorMessage(error)}; automatic resend disabled.`,
+      dependencies, actions);
+    return;
+  }
   actions.acknowledge(message);
 }

@@ -9,6 +9,7 @@ type ConvertMediaInput = {
   outputPath: string;
   sourceType: ConversionSourceType;
   targetFormat: string;
+  signal?: AbortSignal;
 };
 
 export class MediaConversionError extends Error {
@@ -43,7 +44,11 @@ function isSupportedTargetFormat(
   return targetFormat in conversionArgumentsByTargetFormat;
 }
 
-export async function convertMedia(input: ConvertMediaInput): Promise<void> {
+export async function convertMedia(
+  input: ConvertMediaInput,
+  startProcess: typeof spawn = spawn,
+): Promise<void> {
+  input.signal?.throwIfAborted();
   if (!isSupportedTargetFormat(input.targetFormat)) {
     throw new MediaConversionError(
       `Unsupported target format: ${input.targetFormat}`,
@@ -75,7 +80,14 @@ export async function convertMedia(input: ConvertMediaInput): Promise<void> {
     let errorOutput = "";
     let settled = false;
 
-    const ffmpegProcess = spawn("ffmpeg", argumentsList);
+    const ffmpegProcess = startProcess("ffmpeg", argumentsList, { windowsHide: true });
+    let processError: Error | undefined;
+    const cancel = (): void => {
+      ffmpegProcess.kill("SIGKILL");
+    };
+
+    input.signal?.addEventListener("abort", cancel, { once: true });
+    if (input.signal?.aborted) cancel();
 
     const rejectOnce = (error: Error): void => {
       if (!settled) {
@@ -89,12 +101,19 @@ export async function convertMedia(input: ConvertMediaInput): Promise<void> {
     });
 
     ffmpegProcess.on("error", (error: Error) => {
-      rejectOnce(
-        new MediaConversionError(`Could not start FFmpeg: ${error.message}`),
-      );
+      processError = new MediaConversionError(`Could not start FFmpeg: ${error.message}`);
     });
 
     ffmpegProcess.on("close", (code: number | null) => {
+      input.signal?.removeEventListener("abort", cancel);
+      if (input.signal?.aborted) {
+        rejectOnce(input.signal.reason);
+        return;
+      }
+      if (processError) {
+        rejectOnce(processError);
+        return;
+      }
       if (settled) {
         return;
       }

@@ -1,0 +1,340 @@
+{
+  "scope": "audio and video, local Docker environment",
+  "automatedTests": {
+    "windows": {
+      "passed": 60,
+      "failed": 0
+    },
+    "linuxContainer": {
+      "passed": 60,
+      "failed": 0
+    }
+  },
+  "typecheck": "passed on host and api container",
+  "integration": {
+    "runId": "validation-1791729580719",
+    "startedAt": "2026-10-11T14:39:40.719Z",
+    "finishedAt": "2026-10-11T14:45:16.719Z",
+    "results": [
+      {
+        "name": "Health and HTTP status validation",
+        "status": "PASS",
+        "seconds": 0.17,
+        "evidence": {
+          "health": 200,
+          "invalidId": 400,
+          "missingId": 404,
+          "missingFile": 400,
+          "invalidTarget": 400
+        }
+      },
+      {
+        "name": "Reject non-media upload as client error",
+        "status": "PASS",
+        "seconds": 0.06
+      },
+      {
+        "name": "Additional input validations and upload limit",
+        "status": "PASS",
+        "seconds": 0.89,
+        "evidence": {
+          "invalidEmail": 400,
+          "missingEmail": 400,
+          "missingFormat": 400,
+          "invalidExtension": 400,
+          "oversized": 413
+        }
+      },
+      {
+        "name": "WAV to MP3, storage lifecycle, notification and signed links",
+        "status": "PASS",
+        "seconds": 2.52,
+        "evidence": {
+          "jobId": "8a7cbb11-bd77-4854-a992-21cf8015a385",
+          "codec": "mp3",
+          "sourceRemoved": true,
+          "resultPresent": true,
+          "emailCount": 1
+        }
+      },
+      {
+        "name": "MP3 to WAV",
+        "status": "PASS",
+        "seconds": 2.78,
+        "evidence": {
+          "jobId": "fb1d9fd3-27dc-4ddd-82d7-8b8dd12241ce",
+          "codec": "pcm_s16le"
+        }
+      },
+      {
+        "name": "MP4 to WebM",
+        "status": "PASS",
+        "seconds": 3.85,
+        "evidence": {
+          "jobId": "a647f049-ce4a-40cf-bc61-4ae3f0ca3560",
+          "codec": "vp9"
+        }
+      },
+      {
+        "name": "WebM to MP4",
+        "status": "PASS",
+        "seconds": 2.48,
+        "evidence": {
+          "jobId": "b70416fd-2dc6-4ae2-9eb0-f357c0ae7f6f",
+          "codec": "h264"
+        }
+      },
+      {
+        "name": "Repeated conversion and notification events are idempotent",
+        "status": "PASS",
+        "seconds": 11.68,
+        "evidence": {
+          "jobId": "8a7cbb11-bd77-4854-a992-21cf8015a385",
+          "repeatedEvents": 6,
+          "conversionAttempts": 1,
+          "notificationAttempts": 1,
+          "emailCount": 1
+        }
+      },
+      {
+        "name": "Invalid media content retries three times and reaches DLQ",
+        "status": "PASS",
+        "seconds": 39.71,
+        "evidence": {
+          "jobId": "a9a0a37a-aa16-4c96-91b2-3050ac38d093",
+          "attempts": 3,
+          "sourcePreserved": true,
+          "dlq": true
+        }
+      },
+      {
+        "name": "Expired third conversion attempt finalizes without fourth processing",
+        "status": "PASS",
+        "seconds": 5.75,
+        "evidence": {
+          "jobId": "189f1dc2-9139-4dc1-8752-c5c3c95c67cc",
+          "attempts": 3,
+          "dlq": true
+        }
+      },
+      {
+        "name": "Expired third notification attempt finalizes without fourth email",
+        "status": "PASS",
+        "seconds": 6.23,
+        "evidence": {
+          "jobId": "beadf09d-30d8-4b7c-a7db-af6e32ca0f09",
+          "attempts": 3,
+          "emailCount": 0,
+          "dlq": true
+        }
+      },
+      {
+        "name": "Malformed broker message goes to DLQ",
+        "status": "PASS",
+        "seconds": 3.59,
+        "evidence": {
+          "dlq": true
+        }
+      },
+      {
+        "name": "Concurrent database claims and bounded counters",
+        "status": "PASS",
+        "seconds": 2.52,
+        "evidence": {
+          "jobId": "2755a063-abc5-4903-a3c5-5b1e5db0ea28",
+          "oneWinner": true,
+          "counts": [
+            1,
+            2,
+            3,
+            3
+          ],
+          "exhausted": true
+        }
+      },
+      {
+        "name": "Concurrent notification claims and bounded counters",
+        "status": "PASS",
+        "seconds": 5.34,
+        "evidence": {
+          "jobId": "5bdd9f8e-4cf3-4567-926d-b3fa512c2aa0",
+          "oneWinner": true,
+          "counts": [
+            1,
+            2,
+            3,
+            3
+          ],
+          "exhausted": true
+        }
+      },
+      {
+        "name": "Real FFmpeg cancellation after PostgreSQL ownership loss",
+        "status": "PASS",
+        "seconds": 32.36,
+        "evidence": {
+          "jobId": "9c22c4bf-287d-43b7-bfc2-d591c16e3e43",
+          "cancelled": true,
+          "childClosed": true,
+          "seconds": 30.016
+        }
+      },
+      {
+        "name": "SMTP connection failure retries three times and reaches notification DLQ",
+        "status": "PASS",
+        "seconds": 44.82,
+        "evidence": {
+          "jobId": "4e46cbf3-c592-49ad-b16a-63fbfcc0658b",
+          "attempts": 3,
+          "emailCount": 0,
+          "dlq": true
+        }
+      },
+      {
+        "name": "SMTP accepted before SENT commit must not duplicate email",
+        "status": "PASS",
+        "seconds": 6.18,
+        "evidence": {
+          "jobId": "2c9d6023-a35b-4374-8a2f-c6dd8f27fb45",
+          "emailCount": 1,
+          "automaticResendDisabled": true
+        }
+      },
+      {
+        "name": "Finalization failure must preserve source for diagnosis",
+        "status": "PASS",
+        "seconds": 4.25,
+        "evidence": {
+          "jobId": "0327512d-f5df-4119-8aed-a3cbb2323b8b",
+          "sourcePreserved": true
+        }
+      },
+      {
+        "name": "Completed cleanup failure resumes without conversion or duplicate event",
+        "status": "PASS",
+        "seconds": 2.03,
+        "evidence": {
+          "jobId": "9072146d-0fa4-43b6-8bca-bc3e434cd8be",
+          "status": "CONCLUÍDO",
+          "attempts": 1,
+          "processes": 1,
+          "retries": 1,
+          "acks": 1,
+          "sourceBefore": true,
+          "sourceAfter": false,
+          "events": 1
+        }
+      },
+      {
+        "name": "SMTP acceptance and database outage recover expired lease without resend",
+        "status": "PASS",
+        "seconds": 5.29,
+        "evidence": {
+          "jobId": "408ed29d-66a9-42d4-9e06-f53cfb1454ea",
+          "emailCount": 1,
+          "before": "SENDING",
+          "after": "FAILED",
+          "attempts": 1,
+          "uncertain": true,
+          "acks": 0,
+          "dlqs": 1
+        }
+      },
+      {
+        "name": "Worker crash is recovered by a different container",
+        "status": "PASS",
+        "seconds": 150.26,
+        "evidence": {
+          "jobId": "13e1d8b0-23e1-4877-8d32-20c2249dbd84",
+          "stoppedContainer": "f8a04e90556e1d3804a9a6b24e2b6696874608a72d6f43851c892bcd18952917",
+          "survivor": "d13fba889110788c6a548a9b829f2ca95fc0bc6f7be172cf61bc9bd532afdbb4",
+          "attempts": 2,
+          "emailCount": 1
+        }
+      }
+    ],
+    "jobs": [
+      {
+        "id": "8a7cbb11-bd77-4854-a992-21cf8015a385",
+        "email": "validation-1791729580719-wav-mp3@conversor.local",
+        "suffix": "wav-mp3"
+      },
+      {
+        "id": "fb1d9fd3-27dc-4ddd-82d7-8b8dd12241ce",
+        "email": "validation-1791729580719-mp3-wav@conversor.local",
+        "suffix": "mp3-wav"
+      },
+      {
+        "id": "a647f049-ce4a-40cf-bc61-4ae3f0ca3560",
+        "email": "validation-1791729580719-mp4-webm@conversor.local",
+        "suffix": "mp4-webm"
+      },
+      {
+        "id": "b70416fd-2dc6-4ae2-9eb0-f357c0ae7f6f",
+        "email": "validation-1791729580719-webm-mp4@conversor.local",
+        "suffix": "webm-mp4"
+      },
+      {
+        "id": "a9a0a37a-aa16-4c96-91b2-3050ac38d093",
+        "email": "validation-1791729580719-corrupt@conversor.local",
+        "suffix": "corrupt"
+      },
+      {
+        "id": "189f1dc2-9139-4dc1-8752-c5c3c95c67cc",
+        "email": "validation-1791729580719-189f1dc2-9139-4dc1-8752-c5c3c95c67cc@conversor.local",
+        "suffix": "seeded"
+      },
+      {
+        "id": "beadf09d-30d8-4b7c-a7db-af6e32ca0f09",
+        "email": "validation-1791729580719-beadf09d-30d8-4b7c-a7db-af6e32ca0f09@conversor.local",
+        "suffix": "seeded"
+      },
+      {
+        "id": "2755a063-abc5-4903-a3c5-5b1e5db0ea28",
+        "email": "validation-1791729580719-2755a063-abc5-4903-a3c5-5b1e5db0ea28@conversor.local",
+        "suffix": "seeded"
+      },
+      {
+        "id": "5bdd9f8e-4cf3-4567-926d-b3fa512c2aa0",
+        "email": "validation-1791729580719-5bdd9f8e-4cf3-4567-926d-b3fa512c2aa0@conversor.local",
+        "suffix": "seeded"
+      },
+      {
+        "id": "9c22c4bf-287d-43b7-bfc2-d591c16e3e43",
+        "email": "validation-1791729580719-9c22c4bf-287d-43b7-bfc2-d591c16e3e43@conversor.local",
+        "suffix": "seeded"
+      },
+      {
+        "id": "4e46cbf3-c592-49ad-b16a-63fbfcc0658b",
+        "email": "validation-1791729580719-smtp-failure@conversor.local",
+        "suffix": "smtp-failure"
+      },
+      {
+        "id": "2c9d6023-a35b-4374-8a2f-c6dd8f27fb45",
+        "email": "validation-1791729580719-2c9d6023-a35b-4374-8a2f-c6dd8f27fb45@conversor.local",
+        "suffix": "seeded"
+      },
+      {
+        "id": "0327512d-f5df-4119-8aed-a3cbb2323b8b",
+        "email": "validation-1791729580719-0327512d-f5df-4119-8aed-a3cbb2323b8b@conversor.local",
+        "suffix": "seeded"
+      },
+      {
+        "id": "9072146d-0fa4-43b6-8bca-bc3e434cd8be",
+        "email": "validation-1791729580719-9072146d-0fa4-43b6-8bca-bc3e434cd8be@conversor.local",
+        "suffix": "seeded"
+      },
+      {
+        "id": "408ed29d-66a9-42d4-9e06-f53cfb1454ea",
+        "email": "validation-1791729580719-408ed29d-66a9-42d4-9e06-f53cfb1454ea@conversor.local",
+        "suffix": "seeded"
+      },
+      {
+        "id": "13e1d8b0-23e1-4877-8d32-20c2249dbd84",
+        "email": "validation-1791729580719-crash@conversor.local",
+        "suffix": "crash"
+      }
+    ]
+  },
+  "dependencyAudit": "unchanged from initial validation; four moderate affected packages"
+}

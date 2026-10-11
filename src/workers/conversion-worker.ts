@@ -24,6 +24,7 @@ import {
   releaseConversionJobForRetry,
 } from "../jobs/fail-conversion-job.js";
 import { convertMedia } from "../conversion/ffmpeg.js";
+import { cleanupCompletedJob } from "../jobs/cleanup-completed-job.js";
 import {
   completeConversionJob,
 } from "../jobs/complete-conversion-job.js";
@@ -35,7 +36,6 @@ import {
 } from "../storage/minio.js";
 import {
   objectExists,
-  removeObjectIfExists,
 } from "../storage/object-lifecycle.js";
 import { downloadUrlToFile, uploadFileAsObject } from "../storage/object-files.js";
 import { processClaimedConversionJob } from "./process-claimed-conversion-job.js";
@@ -46,8 +46,6 @@ const processingDependencies = {
   assertProcessingOwnership: () => undefined,
   objectExists: (bucketName: string, objectKey: string) =>
     objectExists(minioClient, bucketName, objectKey),
-  removeObjectIfExists: (bucketName: string, objectKey: string) =>
-    removeObjectIfExists(minioClient, bucketName, objectKey),
   downloadUrlToFile,
   convertMedia,
   uploadFileAsObject,
@@ -98,11 +96,13 @@ async function handleMessage(
       parseEvent: (serialized) => parseConversionRequestedEventJson(serialized),
       claimConversionJob,
       getConversionJobState,
+      cleanupCompletedJob,
       startHeartbeat: startConversionJobHeartbeat,
-      processClaimedJob: (job, event, assertProcessingOwnership) =>
+      processClaimedJob: (job, event, assertProcessingOwnership, signal) =>
         processClaimedConversionJob(job, event, {
           ...processingDependencies,
           assertProcessingOwnership,
+          signal,
         }),
       releaseForRetry: releaseConversionJobForRetry,
       markAsFailed: markConversionJobAsFailed,

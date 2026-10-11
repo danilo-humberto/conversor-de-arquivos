@@ -1,0 +1,292 @@
+{
+  "date": "2026-10-11",
+  "scope": "audio and video, local Docker environment",
+  "automatedTests": {
+    "windows": {
+      "passed": 55,
+      "failed": 0
+    },
+    "linuxContainer": {
+      "passed": 55,
+      "failed": 0
+    }
+  },
+  "integration": {
+    "passed": 16,
+    "failed": 3,
+    "scenarios": [
+      {
+        "name": "Health and HTTP status validation",
+        "status": "PASS",
+        "seconds": 0.2,
+        "evidence": {
+          "health": 200,
+          "invalidId": 400,
+          "missingId": 404,
+          "missingFile": 400,
+          "invalidTarget": 400
+        }
+      },
+      {
+        "name": "Reject non-media upload as client error",
+        "status": "FAIL",
+        "error": "{\"message\":\"Internal server error.\"}\n\n500 !== 400\n"
+      },
+      {
+        "name": "WAV to MP3, storage lifecycle, notification and signed links",
+        "status": "PASS",
+        "seconds": 2.74,
+        "evidence": {
+          "jobId": "997f5810-968b-4c5d-b419-da372e2039d2",
+          "codec": "mp3",
+          "sourceRemoved": true,
+          "resultPresent": true,
+          "emailCount": 1
+        }
+      },
+      {
+        "name": "MP3 to WAV",
+        "status": "PASS",
+        "seconds": 2.81,
+        "evidence": {
+          "jobId": "04f99a36-24d0-4ad7-af57-bcafeb4daa07",
+          "codec": "pcm_s16le"
+        }
+      },
+      {
+        "name": "MP4 to WebM",
+        "status": "PASS",
+        "seconds": 3.78,
+        "evidence": {
+          "jobId": "e84ecff7-0f0a-42b1-84d7-7fb5439455cd",
+          "codec": "vp9"
+        }
+      },
+      {
+        "name": "WebM to MP4",
+        "status": "PASS",
+        "seconds": 2.52,
+        "evidence": {
+          "jobId": "6ab1c815-7916-4437-9e18-7bcdfc3c2cae",
+          "codec": "h264"
+        }
+      },
+      {
+        "name": "Repeated conversion and notification events are idempotent",
+        "status": "PASS",
+        "seconds": 12.34,
+        "evidence": {
+          "jobId": "997f5810-968b-4c5d-b419-da372e2039d2",
+          "repeatedEvents": 6,
+          "conversionAttempts": 1,
+          "notificationAttempts": 1,
+          "emailCount": 1
+        }
+      },
+      {
+        "name": "Invalid media content retries three times and reaches DLQ",
+        "status": "PASS",
+        "seconds": 40.21,
+        "evidence": {
+          "jobId": "7122492a-16d7-495a-ba04-89ddf126c727",
+          "attempts": 3,
+          "sourcePreserved": true,
+          "dlq": true
+        }
+      },
+      {
+        "name": "Expired third conversion attempt finalizes without fourth processing",
+        "status": "PASS",
+        "seconds": 6.04,
+        "evidence": {
+          "jobId": "37f289da-b8bf-4ddd-a9f2-98b31fad8fc6",
+          "attempts": 3,
+          "dlq": true
+        }
+      },
+      {
+        "name": "Expired third notification attempt finalizes without fourth email",
+        "status": "PASS",
+        "seconds": 6.42,
+        "evidence": {
+          "jobId": "81d05545-b6d5-4d4d-8403-a39628f8705b",
+          "attempts": 3,
+          "emailCount": 0,
+          "dlq": true
+        }
+      },
+      {
+        "name": "Malformed broker message goes to DLQ",
+        "status": "PASS",
+        "seconds": 3.64,
+        "evidence": {
+          "dlq": true
+        }
+      },
+      {
+        "name": "Worker crash is recovered by a different container",
+        "status": "PASS",
+        "seconds": 152.55,
+        "evidence": {
+          "jobId": "02088da6-bb4f-4472-8397-4f7a11ff048e",
+          "stoppedContainer": "c31481ebe2546669c0f4362488f87345ab17b72984862061aa8bc1bd4219c265",
+          "survivor": "afb6cf1452e439e3d6e8d7f6b598183c107d7b599996330a16ecd6146a3d082c",
+          "attempts": 2,
+          "emailCount": 1
+        }
+      },
+      {
+        "name": "Concurrent database claims and bounded counters",
+        "status": "PASS",
+        "seconds": 2.95,
+        "evidence": {
+          "jobId": "b80f3059-59a3-429a-85ee-74a2df02a1b8",
+          "oneWinner": true,
+          "counts": [
+            1,
+            2,
+            3,
+            3
+          ],
+          "exhausted": true
+        }
+      },
+      {
+        "name": "Concurrent notification claims and bounded counters",
+        "status": "PASS",
+        "seconds": 6.07,
+        "evidence": {
+          "jobId": "2ee306ab-3e3c-4656-ab96-2f60f6908700",
+          "oneWinner": true,
+          "counts": [
+            1,
+            2,
+            3,
+            3
+          ],
+          "exhausted": true
+        }
+      },
+      {
+        "name": "Additional input validations and upload limit",
+        "status": "PASS",
+        "seconds": 0.81,
+        "evidence": {
+          "invalidEmail": 400,
+          "missingEmail": 400,
+          "missingFormat": 400,
+          "invalidExtension": 400,
+          "oversized": 413
+        }
+      },
+      {
+        "name": "Real FFmpeg cancellation after PostgreSQL ownership loss",
+        "status": "PASS",
+        "seconds": 32.27,
+        "evidence": {
+          "jobId": "913639f7-21a2-4011-bfc3-c46a782b3dc3",
+          "cancelled": true,
+          "childClosed": true,
+          "seconds": 30.048
+        }
+      },
+      {
+        "name": "SMTP connection failure retries three times and reaches notification DLQ",
+        "status": "PASS",
+        "seconds": 43.17,
+        "evidence": {
+          "jobId": "4b4dbcd6-df68-4988-a863-ac04b6d7abb4",
+          "attempts": 3,
+          "emailCount": 0,
+          "dlq": true
+        }
+      },
+      {
+        "name": "SMTP accepted before SENT commit must not duplicate email",
+        "status": "FAIL",
+        "error": "Observed 2 emails after SMTP acceptance and SENT failure; job e2b5ebe6-9204-4ca7-b39a-866d9a923b8a\n\n2 !== 1\n"
+      },
+      {
+        "name": "Finalization failure must preserve source for diagnosis",
+        "status": "FAIL",
+        "error": "Job d4061802-abea-422a-aca0-7b9a921e0ad9 reached ERRO after signing failures, but its source was removed\n\nfalse !== true\n"
+      }
+    ]
+  },
+  "browser": {
+    "status": "PASS",
+    "jobId": "2b75ad9d-2684-4e86-a787-b78187a6fe30",
+    "steps": [
+      "upload",
+      "acceptance",
+      "new status tab",
+      "completed status",
+      "download link"
+    ]
+  },
+  "benchmark": {
+    "jobsPerBatch": 8,
+    "audioSeconds": 30,
+    "results": [
+      {
+        "workers": 1,
+        "seconds": 3.29,
+        "jobsPerSecond": 2.432
+      },
+      {
+        "workers": 2,
+        "seconds": 1.969,
+        "jobsPerSecond": 4.064
+      }
+    ],
+    "distinctResults": true,
+    "oneAttemptPerJob": true
+  },
+  "npmAudit": {
+    "moderateAffectedPackages": [
+      "minio",
+      "query-string",
+      "decode-uri-component",
+      "stream-json"
+    ],
+    "high": 0,
+    "critical": 0
+  },
+  "environmentRestored": {
+    "conversionWorkers": 1,
+    "notificationWorkerRunning": true,
+    "processingAndRetryQueuesEmpty": true
+  },
+  "runs": [
+    {
+      "file": "results.json",
+      "runId": "validation-1791728009138",
+      "startedAt": "2026-10-11T14:13:29.138Z",
+      "finishedAt": "2026-10-11T14:17:13.283Z"
+    },
+    {
+      "file": "recovery-results.json",
+      "runId": "validation-1791728329009",
+      "startedAt": "2026-10-11T14:18:49.009Z",
+      "finishedAt": "2026-10-11T14:19:04.168Z"
+    },
+    {
+      "file": "concurrency-results.json",
+      "runId": "validation-1791728396143",
+      "startedAt": "2026-10-11T14:19:56.143Z",
+      "finishedAt": "2026-10-11T14:20:07.420Z"
+    },
+    {
+      "file": "additional-results.json",
+      "runId": "validation-1791728572520",
+      "startedAt": "2026-10-11T14:22:52.520Z",
+      "finishedAt": "2026-10-11T14:24:11.533Z"
+    },
+    {
+      "file": "failure-window-results.json",
+      "runId": "validation-1791728700577",
+      "startedAt": "2026-10-11T14:25:00.577Z",
+      "finishedAt": "2026-10-11T14:25:11.899Z"
+    }
+  ]
+}

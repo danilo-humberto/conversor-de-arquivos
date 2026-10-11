@@ -12,6 +12,7 @@ const job: ClaimedConversionJob = {
   processingToken: "c0a80113-4f9d-4e3e-8d8c-123456789abc",
   sourceBucket: "uploads",
   sourceObjectKey: "c0a80112-4f9d-4e3e-8d8c-123456789abc/source.mp3",
+  attemptsExhausted: false,
 };
 
 const event: ConversionRequestedEvent = {
@@ -53,10 +54,6 @@ function createDependencies(steps: string[], resultExists = false): ConversionPr
       assert.match(filePath, /result\.wav$/);
       steps.push("upload");
     },
-    async removeObjectIfExists(bucketName, objectKey) {
-      assert.deepEqual([bucketName, objectKey], [job.sourceBucket, job.sourceObjectKey]);
-      steps.push("remove source");
-    },
     async createDownloadUrl(bucketName, objectKey) {
       assert.deepEqual([bucketName, objectKey], ["converted", resultKey]);
       steps.push("create URL");
@@ -76,13 +73,13 @@ function createDependencies(steps: string[], resultExists = false): ConversionPr
   };
 }
 
-test("converte, persiste, remove a origem e só então conclui o job", async () => {
+test("converte e conclui antes de permitir a limpeza externa da origem", async () => {
   const steps: string[] = [];
 
   await processClaimedConversionJob(job, event, createDependencies(steps));
 
   assert.deepEqual(steps, [
-    "check result", "download", "convert", "upload", "remove source",
+    "check result", "download", "convert", "upload",
     "create URL", "complete job",
   ]);
 });
@@ -92,36 +89,18 @@ test("resultado preexistente pula download, conversão e upload", async () => {
 
   await processClaimedConversionJob(job, event, createDependencies(steps, true));
 
-  assert.deepEqual(steps, ["check result", "remove source", "create URL", "complete job"]);
+  assert.deepEqual(steps, ["check result", "create URL", "complete job"]);
 });
 
-test("origem ausente é limpeza idempotente e permite conclusão", async () => {
+test("falha na assinatura preserva a origem e impede conclusão", async () => {
   const steps: string[] = [];
   const dependencies = createDependencies(steps, true);
-  dependencies.removeObjectIfExists = async () => {
-    steps.push("source already absent");
-  };
-
-  await processClaimedConversionJob(job, event, dependencies);
-
-  assert.deepEqual(steps, ["check result", "source already absent", "create URL", "complete job"]);
+  dependencies.createDownloadUrl = async () => { throw new Error("Signing failed"); };
+  await assert.rejects(processClaimedConversionJob(job, event, dependencies), /Signing failed/);
+  assert.deepEqual(steps, ["check result"]);
 });
 
-test("falha de remoção impede conclusão e evento de sucesso", async () => {
-  const steps: string[] = [];
-  const dependencies = createDependencies(steps);
-  const removalFailure = new Error("MinIO unavailable");
-  dependencies.removeObjectIfExists = async () => {
-    steps.push("remove source");
-    throw removalFailure;
-  };
-
-  await assert.rejects(processClaimedConversionJob(job, event, dependencies), removalFailure);
-
-  assert.deepEqual(steps, ["check result", "download", "convert", "upload", "remove source"]);
-});
-
-test("perda da posse antes da limpeza impede remoção da origem e conclusão", async () => {
+test("perda da posse antes da assinatura impede conclusão", async () => {
   const steps: string[] = [];
   const dependencies = createDependencies(steps, true);
   let ownershipChecks = 0;
@@ -142,7 +121,7 @@ test("perda da posse antes da limpeza impede remoção da origem e conclusão", 
   assert.deepEqual(steps, ["check result"]);
 });
 
-test("reentrega após upload e remoção retoma sem reconverter", async () => {
+test("reentrega após falha de commit retoma resultado persistido sem reconverter", async () => {
   const steps: string[] = [];
   const firstDelivery = createDependencies(steps);
   firstDelivery.completeConversionJob = async () => {
@@ -154,17 +133,15 @@ test("reentrega após upload e remoção retoma sem reconverter", async () => {
 
   const retrySteps: string[] = [];
   const retry = createDependencies(retrySteps, true);
-  retry.removeObjectIfExists = async () => {
-    retrySteps.push("source already absent");
-  };
+
 
   await processClaimedConversionJob(job, event, retry);
 
   assert.deepEqual(steps, [
-    "check result", "download", "convert", "upload", "remove source",
+    "check result", "download", "convert", "upload",
     "create URL", "interrupted before commit",
   ]);
   assert.deepEqual(retrySteps, [
-    "check result", "source already absent", "create URL", "complete job",
+    "check result", "create URL", "complete job",
   ]);
 });

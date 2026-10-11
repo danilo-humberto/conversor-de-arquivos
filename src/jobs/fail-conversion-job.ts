@@ -33,6 +33,7 @@ export async function releaseConversionJobForRetry(
       WHERE id = $1
         AND status = 'PROCESSANDO'
         AND processing_token = $2
+        AND lease_expires_at > NOW()
     `,
     [input.jobId, input.processingToken, input.errorMessage],
   );
@@ -70,6 +71,7 @@ export async function markConversionJobAsFailed(
         WHERE id = $1
           AND status = 'PROCESSANDO'
           AND processing_token = $2
+          AND lease_expires_at > NOW()
       `,
       [input.jobId, input.processingToken, input.errorMessage],
     );

@@ -10,8 +10,8 @@ import { type completeConversionJob } from "../jobs/complete-conversion-job.js";
 export type ConversionProcessingDependencies = {
   resultBucket: string;
   assertProcessingOwnership(): void;
+  signal?: AbortSignal;
   objectExists(bucketName: string, objectKey: string): Promise<boolean>;
-  removeObjectIfExists(bucketName: string, objectKey: string): Promise<void>;
   downloadUrlToFile(sourceUrl: string, destinationPath: string): Promise<void>;
   convertMedia: typeof convertMedia;
   uploadFileAsObject(
@@ -50,6 +50,7 @@ export async function processClaimedConversionJob(
         outputPath,
         sourceType: event.sourceType,
         targetFormat: event.targetFormat,
+        ...(dependencies.signal ? { signal: dependencies.signal } : {}),
       });
       dependencies.assertProcessingOwnership();
       await dependencies.uploadFileAsObject(
@@ -63,8 +64,6 @@ export async function processClaimedConversionJob(
     }
   }
 
-  dependencies.assertProcessingOwnership();
-  await dependencies.removeObjectIfExists(job.sourceBucket, job.sourceObjectKey);
   dependencies.assertProcessingOwnership();
   const resultUrl = await dependencies.createDownloadUrl(
     dependencies.resultBucket,

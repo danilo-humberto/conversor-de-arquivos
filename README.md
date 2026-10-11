@@ -17,6 +17,11 @@ Os containers usam `minio:9000` internamente. Os links enviados por e-mail usam 
 - A URL assinada do arquivo de origem é válida por sete dias (`MINIO_SOURCE_URL_EXPIRY_SECONDS=604800`, por padrão).
 - Cada conversão tem um *lease* de 120 segundos: é a reserva temporária que impede que dois workers processem o mesmo job ao mesmo tempo.
 - Enquanto processa, o worker renova esse lease por meio de um *heartbeat* a cada 30 segundos. Se a renovação falhar ou o lease expirar, o processamento deixa de ter posse do job e não pode concluí-lo.
+- A perda da posse cancela o FFmpeg; o worker aguarda o encerramento do processo antes de limpar os arquivos temporários. O prazo local também cancela a conversão se uma renovação ficar sem resposta.
+- Conversão e notificação permitem no máximo três tentativas reservadas no banco, incluindo tentativas interrompidas por queda de worker. Após o esgotamento, a recuperação apenas registra `ERRO`/`FAILED` e encaminha a mensagem à DLQ, sem executar uma quarta tentativa.
+- Notificações com resultado SMTP incerto são encaminhadas para revisão em `FAILED`/DLQ sem reenvio automático, inclusive após expiração de `SENDING`. Falhas comprovadas antes da aceitação continuam usando as três tentativas. Consulte [garantias e diagnóstico](docs/contratos.md).
+- A origem só é removida após a conclusão confirmada no banco. Se a limpeza falhar, a reentrega retoma essa operação a cada 30 segundos sem alterar o resultado ou reconverter.
+- Esperar um job ocupado ou aguardar o banco voltar não consome tentativa de processamento. Essas esperas não possuem um limite global de reentregas; o teto de três se aplica ao processamento reservado, não a toda circulação da mensagem.
 
 Depois da inicialização, acesse:
 

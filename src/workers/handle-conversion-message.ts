@@ -2,8 +2,7 @@ import type { ConversionRequestedEvent } from "../contracts/conversion-events.js
 import type { ClaimedConversionJob, ConversionJobState } from "../jobs/claim-conversion-job.js";
 import { ConversionJobLeaseLostError } from "../jobs/conversion-job-heartbeat.js";
 import { JobCompletionError } from "../jobs/complete-conversion-job.js";
-
-export const MAX_CONVERSION_ATTEMPTS = 3;
+import { MAX_CONVERSION_ATTEMPTS } from "../contracts/processing-policy.js";
 
 export type ConversionMessage = {
   content: Buffer;
@@ -27,6 +26,7 @@ export type ConversionMessageActions = {
 };
 
 type ConversionHeartbeat = {
+  signal: AbortSignal;
   assertOwnership(): void;
   stop(): Promise<void>;
 };
@@ -35,11 +35,13 @@ export type ConversionMessageDependencies = {
   parseEvent(serialized: string): ConversionRequestedEvent;
   claimConversionJob(jobId: string): Promise<ClaimedConversionJob | null>;
   getConversionJobState(jobId: string): Promise<ConversionJobState | null>;
+  cleanupCompletedJob(jobId: string): Promise<void>;
   startHeartbeat(jobId: string, processingToken: string): ConversionHeartbeat;
   processClaimedJob(
     job: ClaimedConversionJob,
     event: ConversionRequestedEvent,
     assertProcessingOwnership: () => void,
+    signal: AbortSignal,
   ): Promise<void>;
   releaseForRetry(input: {
     jobId: string;
@@ -107,12 +109,18 @@ async function handleUnclaimedJob(
 ): Promise<void> {
   const jobState = await dependencies.getConversionJobState(event.jobId);
 
-  if (
-    jobState === null ||
-    jobState.status === "CONCLUÍDO" ||
-    jobState.status === "ERRO"
-  ) {
+  if (jobState === null) {
     actions.acknowledge(message);
+    return;
+  }
+
+  if (jobState.status === "CONCLUÍDO") {
+    await cleanupAndAcknowledge(message, event, dependencies, actions, queues);
+    return;
+  }
+
+  if (jobState.status === "ERRO") {
+    await actions.deadLetter(message, "Conversion has already exhausted its processing attempts.");
     return;
   }
 
@@ -125,6 +133,26 @@ async function handleUnclaimedJob(
     reason: "Job is not currently available for processing.",
     attempt: event.attempt,
   });
+}
+
+async function cleanupAndAcknowledge(
+  message: ConversionMessage,
+  event: ConversionRequestedEvent,
+  dependencies: ConversionMessageDependencies,
+  actions: ConversionMessageActions,
+  queues: ConversionMessageQueues,
+): Promise<void> {
+  try {
+    await dependencies.cleanupCompletedJob(event.jobId);
+  } catch (error) {
+    await actions.retry({
+      message, event, queueName: queues.retryAfter30Seconds,
+      reason: `Completed conversion source cleanup failed: ${getErrorMessage(error)}`,
+      attempt: event.attempt,
+    });
+    return;
+  }
+  actions.acknowledge(message);
 }
 
 export async function handleConversionMessage(
@@ -162,6 +190,18 @@ export async function handleConversionMessage(
     return;
   }
 
+  if (job.attemptsExhausted) {
+    const reason = "Conversion has exhausted its processing attempts.";
+    await dependencies.markAsFailed({
+      jobId: job.id,
+      processingToken: job.processingToken,
+      errorMessage: reason,
+      notifyEmail: event.notifyEmail,
+    });
+    await actions.deadLetter(message, reason);
+    return;
+  }
+
   try {
     const heartbeat = dependencies.startHeartbeat(job.id, job.processingToken);
     let processingError: unknown;
@@ -171,8 +211,8 @@ export async function handleConversionMessage(
         job,
         event,
         () => heartbeat.assertOwnership(),
+        heartbeat.signal,
       );
-      heartbeat.assertOwnership();
     } catch (error) {
       processingError = error;
     } finally {
@@ -210,5 +250,5 @@ export async function handleConversionMessage(
     return;
   }
 
-  actions.acknowledge(message);
+  await cleanupAndAcknowledge(message, event, dependencies, actions, queues);
 }

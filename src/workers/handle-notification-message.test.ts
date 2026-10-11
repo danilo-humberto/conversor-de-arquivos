@@ -36,7 +36,7 @@ const failedEvent: ConversionFinishedEvent = {
 };
 
 function claimed(attemptCount: number): ClaimedNotification {
-  return { jobId, attemptCount, notificationToken };
+  return { jobId, attemptCount, notificationToken, attemptsExhausted: false, deliveryUncertain: false };
 }
 
 function createDependencies(
@@ -108,7 +108,7 @@ test("envia notificações de conclusão e erro com Message-ID determinístico",
 test("falha inicial persiste PENDING e agenda o primeiro retry", async () => {
   const dependencies = createDependencies(completedEvent);
   dependencies.sendEmail = async () => {
-    throw new Error("SMTP unavailable");
+    throw Object.assign(new Error("SMTP unavailable"), { command: "CONN" });
   };
 
   await handleNotificationMessage(message, dependencies, createActions(dependencies.calls), queues);
@@ -123,7 +123,7 @@ test("terceira falha persiste FAILED antes de publicar na DLQ", async () => {
   const dependencies = createDependencies(completedEvent);
   dependencies.claimNotification = async () => claimed(3);
   dependencies.sendEmail = async () => {
-    throw new Error("SMTP unavailable");
+    throw Object.assign(new Error("SMTP unavailable"), { command: "CONN" });
   };
 
   await handleNotificationMessage(message, dependencies, createActions(dependencies.calls), queues);
@@ -146,6 +146,66 @@ test("reentrega de uma notificação FAILED vai para a DLQ sem novo envio", asyn
 
   assert.deepEqual(dependencies.emails, []);
   assert.deepEqual(dependencies.calls, [
-    "dlq:Notification has already exhausted its delivery attempts.",
+    "dlq:Notification requires review or has exhausted its delivery attempts.",
   ]);
+});
+
+test("recuperação após terceira tentativa interrompida não envia um quarto e-mail", async () => {
+  const dependencies = createDependencies(completedEvent);
+  dependencies.claimNotification = async () => ({ ...claimed(3), attemptsExhausted: true });
+  await handleNotificationMessage(message, dependencies, createActions(dependencies.calls), queues);
+  assert.deepEqual(dependencies.emails, []);
+  assert.deepEqual(dependencies.calls, [
+    "failed-state:Notification has exhausted its delivery attempts.",
+    "dlq:Notification has exhausted its delivery attempts.",
+  ]);
+});
+
+test("notificação ocupada espera sem enviar nem incrementar tentativas no handler", async () => {
+  const dependencies = createDependencies(completedEvent);
+  dependencies.claimNotification = async () => null;
+  dependencies.getNotificationState = async () => ({ status: "SENDING", leaseExpiresAt: new Date() });
+  await handleNotificationMessage(message, dependencies, createActions(dependencies.calls), queues);
+  assert.deepEqual(dependencies.emails, []);
+  assert.deepEqual(dependencies.calls, [
+    "retry:notification.retry.30s:Notification is not currently available for processing.",
+  ]);
+});
+
+test("SMTP aceitou mas falha ao registrar SENT exige revisão sem liberar novo envio", async () => {
+  const dependencies = createDependencies(completedEvent);
+  dependencies.markNotificationAsSent = async () => { throw new Error("Database unavailable"); };
+  await handleNotificationMessage(message, dependencies, createActions(dependencies.calls), queues);
+  assert.equal(dependencies.emails.length, 1);
+  assert.equal(dependencies.calls.length, 2);
+  assert.match(dependencies.calls[0] ?? "", /^failed-state:SMTP accepted; SENT persistence failed:/);
+  assert.match(dependencies.calls[1] ?? "", /^dlq:SMTP accepted;/);
+});
+
+test("falha também ao registrar revisão mantém SENDING para recuperação sem reenvio", async () => {
+  const dependencies = createDependencies(completedEvent);
+  dependencies.markNotificationAsSent = async () => { throw new Error("Database unavailable"); };
+  dependencies.markNotificationAsFailed = async () => { throw new Error("Database still unavailable"); };
+  await assert.rejects(handleNotificationMessage(message, dependencies, createActions(dependencies.calls), queues), /Database still unavailable/);
+  assert.equal(dependencies.emails.length, 1);
+  assert.deepEqual(dependencies.calls, []);
+});
+
+test("lease SENDING expirada na primeira tentativa exige revisão sem enviar", async () => {
+  const dependencies = createDependencies(completedEvent);
+  dependencies.claimNotification = async () => ({ ...claimed(1), deliveryUncertain: true });
+  await handleNotificationMessage(message, dependencies, createActions(dependencies.calls), queues);
+  assert.deepEqual(dependencies.emails, []);
+  assert.match(dependencies.calls[0] ?? "", /^failed-state:Delivery outcome uncertain:/);
+  assert.match(dependencies.calls[1] ?? "", /^dlq:Delivery outcome uncertain:/);
+});
+
+test("timeout durante DATA não provoca reenvio de resultado incerto", async () => {
+  const dependencies = createDependencies(completedEvent);
+  dependencies.sendEmail = async () => {
+    throw Object.assign(new Error("SMTP timeout"), { code: "ETIMEDOUT", command: "DATA" });
+  };
+  await handleNotificationMessage(message, dependencies, createActions(dependencies.calls), queues);
+  assert.match(dependencies.calls[0] ?? "", /^failed-state:Delivery outcome uncertain:/);
+  assert.match(dependencies.calls[1] ?? "", /^dlq:Delivery outcome uncertain:/);
 });

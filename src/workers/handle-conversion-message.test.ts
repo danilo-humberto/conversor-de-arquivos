@@ -3,6 +3,7 @@ import test from "node:test";
 
 import type { ConversionRequestedEvent } from "../contracts/conversion-events.js";
 import type { ClaimedConversionJob } from "../jobs/claim-conversion-job.js";
+import { ConversionJobLeaseLostError } from "../jobs/conversion-job-heartbeat.js";
 import { JobCompletionError } from "../jobs/complete-conversion-job.js";
 import {
   handleConversionMessage,
@@ -33,6 +34,7 @@ function claimed(attemptCount = 1): ClaimedConversionJob {
     processingToken: "c0a80113-4f9d-4e3e-8d8c-123456789abc",
     sourceBucket: "uploads",
     sourceObjectKey: `${jobId}/source.mp3`,
+    attemptsExhausted: false,
   };
 }
 
@@ -44,8 +46,10 @@ function createDependencies(): ConversionMessageDependencies & { calls: string[]
     parseEvent() { return event; },
     async claimConversionJob() { return claimed(); },
     async getConversionJobState() { return null; },
+    async cleanupCompletedJob() { calls.push("cleanup"); },
     startHeartbeat() {
       return {
+        signal: new AbortController().signal,
         assertOwnership() {},
         async stop() { calls.push("heartbeat stopped"); },
       };
@@ -70,7 +74,7 @@ test("confirma o consumo somente após processar e encerrar o heartbeat", async 
   const dependencies = createDependencies();
   await handleConversionMessage(message, dependencies, createActions(dependencies.calls), queues);
 
-  assert.deepEqual(dependencies.calls, ["process", "heartbeat stopped", "ack"]);
+  assert.deepEqual(dependencies.calls, ["process", "heartbeat stopped", "cleanup", "ack"]);
 });
 
 test("evento inválido vai para a DLQ sem tentar reservar o job", async () => {
@@ -98,7 +102,7 @@ test("job já concluído é reconhecido como reentrega idempotente", async () =>
 
   await handleConversionMessage(message, dependencies, createActions(dependencies.calls), queues);
 
-  assert.deepEqual(dependencies.calls, ["ack"]);
+  assert.deepEqual(dependencies.calls, ["cleanup", "ack"]);
 });
 
 test("job ocupado é reenfileirado no retry longo sem aumentar a tentativa", async () => {
@@ -150,4 +154,68 @@ test("perda da janela de conclusão é reenfileirada sem alterar o estado", asyn
     "heartbeat stopped",
     "retry:conversion.retry.30s:1:Lease expired",
   ]);
+});
+
+test("recuperação de tentativa esgotada finaliza em erro sem iniciar processamento", async () => {
+  const dependencies = createDependencies();
+  dependencies.claimConversionJob = async () => ({ ...claimed(3), attemptsExhausted: true });
+  dependencies.startHeartbeat = () => { throw new Error("Must not start heartbeat"); };
+
+  await handleConversionMessage(message, dependencies, createActions(dependencies.calls), queues);
+  assert.deepEqual(dependencies.calls, [
+    "failed:Conversion has exhausted its processing attempts.",
+    "dlq:Conversion has exhausted its processing attempts.",
+  ]);
+});
+
+test("reentrega após persistir ERRO e falhar publicação na DLQ recupera o encaminhamento", async () => {
+  const dependencies = createDependencies();
+  dependencies.claimConversionJob = async () => null;
+  dependencies.getConversionJobState = async () => ({ status: "ERRO", leaseExpiresAt: null });
+
+  await handleConversionMessage(message, dependencies, createActions(dependencies.calls), queues);
+  assert.deepEqual(dependencies.calls, [
+    "dlq:Conversion has already exhausted its processing attempts.",
+  ]);
+});
+
+test("sinal do heartbeat chega ao processamento e perda da posse não libera token antigo", async () => {
+  const dependencies = createDependencies();
+  const controller = new AbortController();
+  const reason = new ConversionJobLeaseLostError();
+  dependencies.startHeartbeat = () => ({
+    signal: controller.signal,
+    assertOwnership() { controller.signal.throwIfAborted(); },
+    async stop() {},
+  });
+  dependencies.processClaimedJob = async (_job, _event, _assertOwnership, signal) => {
+    assert.equal(signal, controller.signal);
+    controller.abort(reason);
+    signal.throwIfAborted();
+  };
+  await handleConversionMessage(message, dependencies, createActions(dependencies.calls), queues);
+  assert.deepEqual(dependencies.calls, [
+    "retry:conversion.retry.30s:1:Conversion job processing lease was lost.",
+  ]);
+});
+
+test("falha de limpeza após conclusão agenda retry sem alterar o job ou reconverter", async () => {
+  const dependencies = createDependencies();
+  dependencies.cleanupCompletedJob = async () => { throw new Error("MinIO unavailable"); };
+  await handleConversionMessage(message, dependencies, createActions(dependencies.calls), queues);
+  assert.deepEqual(dependencies.calls, [
+    "process", "heartbeat stopped",
+    "retry:conversion.retry.30s:1:Completed conversion source cleanup failed: MinIO unavailable",
+  ]);
+  dependencies.claimConversionJob = async () => null;
+  dependencies.getConversionJobState = async () => ({ status: "CONCLUÍDO", leaseExpiresAt: null });
+  dependencies.calls.length = 0;
+  await handleConversionMessage(message, dependencies, createActions(dependencies.calls), queues);
+  assert.deepEqual(dependencies.calls, [
+    "retry:conversion.retry.30s:1:Completed conversion source cleanup failed: MinIO unavailable",
+  ]);
+  dependencies.cleanupCompletedJob = async () => { dependencies.calls.push("cleanup resumed"); };
+  dependencies.calls.length = 0;
+  await handleConversionMessage(message, dependencies, createActions(dependencies.calls), queues);
+  assert.deepEqual(dependencies.calls, ["cleanup resumed", "ack"]);
 });
